@@ -14,7 +14,6 @@
 #include "libmesh/int_range.h"
 
 #ifdef THERMOCHIMICA_ENABLED
-#include "Thermochimica-cxx.h"
 #include "checkUnits.h"
 #endif
 
@@ -38,7 +37,7 @@ ThermochimicaDataBase<is_nodal>::validParams()
   params.addRequiredCoupledVar("temperature", "Coupled temperature");
   params.addCoupledVar("pressure", 1.0, "Pressure");
 
-  MooseEnum reinit_type("none time nodal", "nodal");
+  MooseEnum reinit_type("none time last_dof cache", "last_dof");
   params.addParam<MooseEnum>(
       "reinit_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
 
@@ -76,6 +75,7 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
         "_chemical_composition_action")),
     _el_ids(_action.elementIDs()),
     _reinit((_action.reinitializationType()).getEnum<ReinitializationType>()),
+    _output_mass_unit((_action.outputSpeciesUnit()).getEnum<OutputMassUnit>()),
     _ph_names(_action.phases()),
     _element_potentials(_action.elementPotentials()),
     _species_phase_pairs(_action.speciesPhasePairs()),
@@ -89,7 +89,7 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
     _vp(_n_vapor_species),
     _el_pot(_n_potentials),
     _el_ph(_n_phase_elements),
-    _output_mass_unit((_action.outputSpeciesUnit()).getEnum<OutputMassUnit>())
+    _thermo_cache(ValueCache<Thermochimica::ReinitializationData>(_n_elements + 2))
 {
   ThermochimicaUtils::checkLibraryAvailability(*this);
 
@@ -146,6 +146,9 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
     for (const auto i : make_range(_n_potentials))
       _el_pot[i] = &writableVariable("output_element_potentials", i);
   }
+
+  if (_reinit == ReinitializationType::CACHE)
+    _current_state.resize(_n_elements + 2);
 }
 
 template <bool is_nodal>
@@ -360,26 +363,49 @@ ThermochimicaDataBase<is_nodal>::currentID()
 
 template <bool is_nodal>
 void
+ThermochimicaDataBase<is_nodal>::currentStateSpace()
+{
+  const auto dof_id = currentID();
+
+  _current_state[0] = _temperature[dof_id];
+  _current_state[1] = _pressure[dof_id];
+  for (const auto i : make_range(_n_elements))
+    _current_state[2 + i] = (*_el[i])[dof_id];
+}
+
+template <bool is_nodal>
+void
+ThermochimicaDataBase<is_nodal>::currentNearestNeighor()
+{
+  _is_nn = _thermo_cache.guess(_current_state, _nearest_neighbor.first, _nearest_neighbor.second);
+}
+
+template <bool is_nodal>
+void
 ThermochimicaDataBase<is_nodal>::reinitDataMooseFromTc()
 {
 #ifdef THERMOCHIMICA_ENABLED
-  auto & d = _data[currentID()];
+  auto reinitialization_data = Thermochimica::getReinitData();
 
-  if (_reinit != ReinitializationType::NONE)
+  switch (_reinit)
   {
-    Thermochimica::saveReinitData();
-    auto data = Thermochimica::getReinitData();
+    case ReinitializationType::NONE:
+      break;
 
-    if (_reinit == ReinitializationType::TIME)
-    {
-      d._assemblage = std::move(data.assemblage);
-      d._moles_phase = std::move(data.molesPhase);
-      d._element_potential = std::move(data.elementPotential);
-      d._chemical_potential = std::move(data.chemicalPotential);
-      d._mol_fraction = std::move(data.moleFraction);
-      d._elements_used = std::move(data.elementsUsed);
-      d._reinit_available = data.reinitAvailable;
-    }
+    case ReinitializationType::CACHE:
+      if (!_is_nn)
+        _thermo_cache.insert(_current_state, reinitialization_data);
+      else if (_nearest_neighbor.first.assemblage != reinitialization_data.assemblage)
+        _thermo_cache.insert(_current_state, reinitialization_data);
+      break;
+
+    case ReinitializationType::TIME:
+      _data[currentID()] = reinitialization_data;
+      break;
+
+    default:
+      Thermochimica::saveReinitData();
+      break;
   }
 #endif
 }
@@ -389,40 +415,42 @@ void
 ThermochimicaDataBase<is_nodal>::reinitDataMooseToTc()
 {
 #ifdef THERMOCHIMICA_ENABLED
-  // Tell Thermochimica whether a re-initialization is requested for this calculation
   switch (_reinit)
   {
     case ReinitializationType::NONE:
       Thermochimica::setReinitRequested(false);
       break;
+
+    case ReinitializationType::CACHE:
+      currentNearestNeighor();
+      Thermochimica::setReinitRequested(true);
+      if (_is_nn && _nearest_neighbor.first.reinitAvailable)
+      {
+        Thermochimica::resetReinit();
+        Thermochimica::setReinitData(_nearest_neighbor.first);
+      }
+      break;
+
+    case ReinitializationType::TIME:
+    {
+      auto it = _data.find(currentID());
+      Thermochimica::setReinitRequested(true);
+      if (it != _data.end() && (it->second).reinitAvailable)
+      {
+        Thermochimica::resetReinit();
+        Thermochimica::setReinitData(it->second);
+      }
+      break;
+    }
+
     default:
       Thermochimica::setReinitRequested(true);
-  }
-  // If we have re-initialization data and want a re-initialization, then
-  // load data into Thermochimica
-  auto it = _data.find(currentID());
-  if (it != _data.end() &&
-      _reinit == ReinitializationType::TIME) // If doing previous timestep reinit
-  {
-    auto & d = it->second;
-    if (d._reinit_available)
-    {
-      Thermochimica::resetReinit();
-      Thermochimica::reinitData data;
-      data.assemblage = d._assemblage;
-      data.molesPhase = d._moles_phase;
-      data.elementPotential = d._element_potential;
-      data.chemicalPotential = d._chemical_potential;
-      data.moleFraction = d._mol_fraction;
-      data.elementsUsed = d._elements_used;
-      Thermochimica::setReinitData(data);
-    }
   }
 #endif
 }
 
 template <bool is_nodal>
-const typename ThermochimicaDataBase<is_nodal>::Data &
+const Thermochimica::ReinitializationData &
 ThermochimicaDataBase<is_nodal>::getNodalData(dof_id_type node_id) const
 {
   if constexpr (!is_nodal)
@@ -431,7 +459,7 @@ ThermochimicaDataBase<is_nodal>::getNodalData(dof_id_type node_id) const
 }
 
 template <bool is_nodal>
-const typename ThermochimicaDataBase<is_nodal>::Data &
+const Thermochimica::ReinitializationData &
 ThermochimicaDataBase<is_nodal>::getElementData(dof_id_type element_id) const
 {
   if constexpr (is_nodal)
@@ -440,7 +468,7 @@ ThermochimicaDataBase<is_nodal>::getElementData(dof_id_type element_id) const
 }
 
 template <bool is_nodal>
-const typename ThermochimicaDataBase<is_nodal>::Data &
+const Thermochimica::ReinitializationData &
 ThermochimicaDataBase<is_nodal>::getData(dof_id_type id) const
 {
   const auto it = _data.find(id);
