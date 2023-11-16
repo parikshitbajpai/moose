@@ -43,7 +43,7 @@ ChemicalCompositionAction::validParams()
                                                     "List of chemical elements (or ALL)");
   params.addRequiredCoupledVar("temperature", "Name of temperature variable");
   params.addCoupledVar("pressure", "Name of pressure variable");
-  MooseEnum reinit_type("none time nodal cache", "nodal");
+  MooseEnum reinit_type("none time last_dof cache", "cache");
   params.addParam<MooseEnum>(
       "reinitialization_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
   params.addParam<FileName>("initial_values", "The CSV file name with initial conditions.");

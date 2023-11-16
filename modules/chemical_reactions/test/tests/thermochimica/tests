@@ -25,6 +25,19 @@
     required_submodule = 'contrib/thermochimica'
   []
 
+  [MoRu_cache]
+    type = Exodiff
+    input = MoRu.i
+    exodiff = MoRu_out.e
+    design = 'ChemicalCompositionAction.md ThermochimicaNodalData.md'
+    issues = '#22711'
+    requirement = 'The system shall be able to use KD-Tree cache to reintialize a thermochimica solve'
+    cli_args = 'ChemicalComposition/reinitialization_type=cache'
+    max_threads = 1
+    rel_err = 1e-3 # this is the same error thermochimica uses for its internal tests
+    required_submodule = 'contrib/thermochimica'
+  []
+
   [MoRu_FV]
     type = Exodiff
     input = MoRu.i

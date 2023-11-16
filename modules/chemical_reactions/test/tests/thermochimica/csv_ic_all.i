@@ -23,7 +23,7 @@
   punit = atm
   munit = moles
   temperature = 2250
-  reinitialization_type = nodal
+  reinitialization_type = last_dof
 []
 
 [Problem]

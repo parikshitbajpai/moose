@@ -124,6 +124,8 @@ protected:
   ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
 
   // Helper variables for KD-Tree cache
+  /// Total moles of elements in the system
+  Real _moles_elements;
   /// ValueCache key {T, P, {C_normalized}} (k = _n_elements + 2)
   std::vector<Real> _current_state;
   /// Nearest neighbor cached in the ValueCache

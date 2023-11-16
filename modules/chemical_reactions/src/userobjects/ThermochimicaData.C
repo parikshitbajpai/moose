@@ -37,7 +37,7 @@ ThermochimicaDataBase<is_nodal>::validParams()
   params.addRequiredCoupledVar("temperature", "Coupled temperature");
   params.addCoupledVar("pressure", 1.0, "Pressure");
 
-  MooseEnum reinit_type("none time last_dof cache", "last_dof");
+  MooseEnum reinit_type("none time last_dof cache", "cache");
   params.addParam<MooseEnum>(
       "reinit_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
 
@@ -366,11 +366,19 @@ void
 ThermochimicaDataBase<is_nodal>::currentStateSpace()
 {
   const auto dof_id = currentID();
+  _moles_elements = 0.0;
 
   _current_state[0] = _temperature[dof_id];
   _current_state[1] = _pressure[dof_id];
   for (const auto i : make_range(_n_elements))
+  {
     _current_state[2 + i] = (*_el[i])[dof_id];
+    _moles_elements += _current_state[2 + i];
+  }
+  // Normalize the moles of elements
+  std::for_each(_current_state.begin() + 2,
+                _current_state.end(),
+                [this](auto & el) { el /= this->_moles_elements; });
 }
 
 template <bool is_nodal>
@@ -395,7 +403,8 @@ ThermochimicaDataBase<is_nodal>::reinitDataMooseFromTc()
     case ReinitializationType::CACHE:
       if (!_is_nn)
         _thermo_cache.insert(_current_state, reinitialization_data);
-      else if (_nearest_neighbor.first.assemblage != reinitialization_data.assemblage)
+      else if ((_nearest_neighbor.first.assemblage != reinitialization_data.assemblage) ||
+               (_nearest_neighbor.first.GEM_iterations > reinitialization_data.GEM_iterations))
         _thermo_cache.insert(_current_state, reinitialization_data);
       break;
 
