@@ -43,7 +43,7 @@ ChemicalCompositionAction::validParams()
       "elements", {"ALL"}, "List of chemical elements (or ALL)");
   params.addCoupledVar("temperature", "Name of temperature variable");
   params.addCoupledVar("pressure", "Name of pressure variable");
-  MooseEnum reinit_type("none time nodal", "nodal");
+  MooseEnum reinit_type("none time last_dof cache", "last_dof");
   params.addParam<MooseEnum>(
       "reinitialization_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
   params.addParam<FileName>("initial_values", "The CSV file name with initial conditions.");
@@ -65,7 +65,7 @@ ChemicalCompositionAction::validParams()
   params.addParam<std::vector<std::string>>("output_phases", {}, "List of phases to be output");
   params.addParam<std::vector<std::string>>(
       "output_species", {}, "List species for which concentration in the phases is needed");
-  MooseEnum mUnit_op("moles mole_fraction");
+  MooseEnum mUnit_op("moles mole_fraction", "moles");
   params.addParam<MooseEnum>(
       "output_species_unit", mUnit_op, "Mass unit for output species: mole_fractions or moles");
   params.addParam<std::vector<std::string>>(
@@ -112,12 +112,6 @@ ChemicalCompositionAction::ChemicalCompositionAction(const InputParameters & par
   if (!isParamValid("temperature"))
     paramError("temperature",
                "Temperature variable must be specified for this object to be constructed");
-
-  if ((isParamValid("output_species") || isParamValid("output_element_phases")) &&
-      !isParamValid("output_species_unit"))
-    paramError(
-        "output_species_unit",
-        "Output mass unit must be specified for Thermochimica user object to be constructed");
 
   ThermochimicaUtils::checkLibraryAvailability(*this);
 

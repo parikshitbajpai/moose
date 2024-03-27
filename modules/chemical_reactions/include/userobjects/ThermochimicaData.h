@@ -12,6 +12,11 @@
 // MOOSE includes
 #include "NodalUserObject.h"
 #include "ElementUserObject.h"
+#include "ValueCache.h"
+
+#ifdef THERMOCHIMICA_ENABLED
+#include "Thermochimica-cxx.h"
+#endif
 
 // Forward declaration
 class ChemicalCompositionAction;
@@ -43,32 +48,19 @@ public:
    * Function to get re-initialization data from Thermochimica and save
    * it in member variables of this UserObject.
    */
-  void reinitDataMooseFromTc();
+  void getReinitializationData();
 
   /**
    * Function to load re-initialization data saved in this UserObject
    * back into Thermochimica.
    */
-  void reinitDataMooseToTc();
+  void setReinitializationData();
 
-  struct Data
-  {
-    int _reinit_available;
-    int _elements;
-    int _species;
-    std::vector<int> _elements_used;
-    std::vector<int> _assemblage;
-    std::vector<double> _moles_phase;
-    std::vector<double> _element_potential;
-    std::vector<double> _chemical_potential;
-    std::vector<double> _mol_fraction;
-  };
-
-  const Data & getNodalData(dof_id_type id) const;
-  const Data & getElementData(dof_id_type id) const;
+  const Thermochimica::ReinitializationData & getNodalData(dof_id_type id) const;
+  const Thermochimica::ReinitializationData & getElementData(dof_id_type id) const;
 
   // universal data access
-  const Data & getData(dof_id_type id) const;
+  const Thermochimica::ReinitializationData & getData(dof_id_type id) const;
 
 protected:
   // child process routine to dispatch thermochimica calculations
@@ -81,6 +73,10 @@ protected:
   // send message to socket
   template <typename T>
   void notify(T send_msg);
+
+  void getEquilibrium();
+
+  void currentStateSpace();
 
   const VariableValue & _pressure;
   const VariableValue & _temperature;
@@ -97,8 +93,11 @@ protected:
   const ChemicalCompositionAction & _action;
   std::vector<unsigned int> _el_ids;
 
-  // re-initialization data
-  const enum class ReinitializationType { NONE, TIME, NODE } _reinit;
+  // Re-initialization data
+  const enum class ReinitializationType { NONE, TIME, LAST_DOF, CACHE } _reinit;
+
+  /// Mass unit for output species
+  const enum class OutputMassUnit { MOLES, FRACTION } _output_mass_unit;
 
   const std::vector<std::string> & _ph_names;
   const std::vector<std::string> & _element_potentials;
@@ -106,8 +105,8 @@ protected:
   const std::vector<std::pair<std::string, std::string>> & _vapor_phase_pairs;
   const std::vector<std::pair<std::string, std::string>> & _phase_element_pairs;
 
-  /// Nodal data (Used only for reinitialization)
-  std::unordered_map<dof_id_type, Data> _data;
+  /// DOF data (Used only for reinitialization)
+  std::unordered_map<dof_id_type, Thermochimica::ReinitializationData> _data;
 
   ///@{ Element chemical potential output
   const bool _output_element_potentials;
@@ -130,23 +129,29 @@ protected:
   /// Writable variable for molar amounts of each element in specified phase
   std::vector<MooseWritableVariable *> _el_ph;
 
-  /// Mass unit for output species
-  const enum class OutputMassUnit { MOLES, FRACTION } _output_mass_unit;
-
-  /// communication socket
+  /// Communication socket
   int _socket;
 
-  /// child PID
+  /// Child PID
   pid_t _pid;
 
-  /// shared memory pointer for dof_id_type values
+  /// Shared memory pointer for dof_id_type values
   dof_id_type * _shared_dofid_mem;
 
-  /// shared memory pointer for Real values
+  /// Shared memory pointer for Real values
   Real * _shared_real_mem;
 
-  // current node or element ID
+  // Current node or element ID
   dof_id_type _current_id;
+
+  // Kd-Tree cache
+  ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
+
+  // Helper variables for KD-Tree cache
+  // Total moles of elements in the system
+  Real _moles_elements;
+  // ValueCache key {T, P, {C_normalized}} (k = _n_elements + 2)
+  std::vector<Real> _current_state;
 
   using ThermochimicaDataBaseParent<is_nodal>::isCoupled;
   using ThermochimicaDataBaseParent<is_nodal>::isParamValid;
