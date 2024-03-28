@@ -13,6 +13,7 @@
 #include "NodalUserObject.h"
 #include "ElementUserObject.h"
 #include "ValueCache.h"
+#include "DataIO.h"
 
 #ifdef THERMOCHIMICA_ENABLED
 #include "Thermochimica-cxx.h"
@@ -145,7 +146,7 @@ protected:
   dof_id_type _current_id;
 
   // Kd-Tree cache
-  // ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
+  ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
 
   // Helper variables for KD-Tree cache
   // Total moles of elements in the system
@@ -162,3 +163,13 @@ protected:
 
 typedef ThermochimicaDataBase<true> ThermochimicaNodalData;
 typedef ThermochimicaDataBase<false> ThermochimicaElementData;
+
+template <>
+void dataStore<Thermochimica::ReinitializationData>(std::ostream & stream,
+                                                    Thermochimica::ReinitializationData & rd,
+                                                    void * context);
+
+template <>
+void dataLoad<Thermochimica::ReinitializationData>(std::istream & stream,
+                                                   Thermochimica::ReinitializationData & rd,
+                                                   void * context);
