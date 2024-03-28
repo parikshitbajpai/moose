@@ -25,7 +25,7 @@
     thermofile = Kaye_NobleMetals.dat
     initial_values = ic_all.csv
     temperature = 2250
-    reinitialization_type = nodal
+    reinitialization_type = last_dof
   []
 []
 

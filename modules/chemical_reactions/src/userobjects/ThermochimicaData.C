@@ -88,6 +88,7 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
         "_chemical_composition_action")),
     _el_ids(_action.elementIDs()),
     _reinit(parameters.get<MooseEnum>("reinit_type").getEnum<ReinitializationType>()),
+    _output_mass_unit(parameters.get<MooseEnum>("output_species_unit").getEnum<OutputMassUnit>()),
     _ph_names(_action.phases()),
     _element_potentials(_action.elementPotentials()),
     _species_phase_pairs(_action.speciesPhasePairs()),
@@ -100,8 +101,7 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
     _sp(_n_species),
     _vp(_n_vapor_species),
     _el_pot(_n_potentials),
-    _el_ph(_n_phase_elements),
-    _output_mass_unit(parameters.get<MooseEnum>("output_species_unit").getEnum<OutputMassUnit>())
+    _el_ph(_n_phase_elements)
 {
   ThermochimicaUtils::checkLibraryAvailability(*this);
 
@@ -326,6 +326,10 @@ ThermochimicaDataBase<is_nodal>::server()
   // Get Thermochemical equilibrium
   getEquilibrium();
 
+  // Get requested phase indices if phase concentration output was requested
+  // i.e. if output_phases is coupled
+  auto moles_phase = Thermochimica::getMolesPhase();
+
   std::size_t idx = 0;
 
   // Get phase assemblage from Thermochimica
@@ -451,7 +455,7 @@ ThermochimicaDataBase<is_nodal>::server()
       libmesh_ignore(moles);
 
       if (idbg == 0)
-        _shared_real_mem[idx] = fraction * pressure;
+        _shared_real_mem[idx] = fraction * _shared_real_mem[0];
       else if (idbg == 1)
         _shared_real_mem[idx] = 0.0;
 #ifndef NDEBUG
@@ -496,14 +500,15 @@ template <bool is_nodal>
 void
 ThermochimicaDataBase<is_nodal>::currentStateSpace()
 {
-  _moles_elements = std::accumulate(_shared_real_mem.begin() + 2, _shared_real_mem.end(), 0.0);
+  for (const auto i : make_range(_n_elements + 2))
+    _current_state_space[i] = _shared_real_mem[i];
 
-  // Cache the current state from shared memory buffer
-  _current_state = _shared_real_mem;
+  _moles_elements =
+      std::accumulate(_current_state_space.begin() + 2, _current_state_space.end(), 0.0);
 
   // Normalize the moles of elements
-  std::for_each(_current_state.begin() + 2,
-                _current_state.end(),
+  std::for_each(_current_state_space.begin() + 2,
+                _current_state_space.end(),
                 [this](auto & el) { el /= this->_moles_elements; });
 }
 
@@ -512,29 +517,101 @@ void
 ThermochimicaDataBase<is_nodal>::getEquilibrium()
 {
 #ifdef THERMOCHIMICA_ENABLED
-
-  // Reset all element masses to 0
-  Thermochimica::setElementMass(0, 0.0);
-
   switch (_reinit)
   {
-    case ReinitializationType::CACHE:
+    case ReinitializationType::NONE:
+    {
+      // Set Thermochimica reinitialization to false
+      Thermochimica::setReinitRequested(false);
+
+      // Set temperature and pressure for thermochemistry solver
+      Thermochimica::setTemperaturePressure(_shared_real_mem[0], _shared_real_mem[1]);
+
+      // Reset all element masses to 0
+      Thermochimica::setElementMass(0, 0.0);
+
+      // Set element masses
+      for (const auto i : make_range(_n_elements))
+        Thermochimica::setElementMass(_el_ids[i], _shared_real_mem[i + 2]);
+
+      // Call Thermochimica for solve
+      Thermochimica::thermochimica();
+
+      // Check for error status
+      auto idbg = Thermochimica::checkInfoThermo();
+      if (idbg != 0)
+        mooseError("Thermochimica error ", idbg);
 
       break;
+    }
 
     case ReinitializationType::LAST_DOF:
+    {
+      // Set Thermochimica reinitialization to true
+      Thermochimica::setReinitRequested(true);
+
+      // Set temperature and pressure for thermochemistry solver
+      Thermochimica::setTemperaturePressure(_shared_real_mem[0], _shared_real_mem[1]);
+
+      // Reset all element masses to 0
+      Thermochimica::setElementMass(0, 0.0);
+
+      // Set element masses
+      for (const auto i : make_range(_n_elements))
+        Thermochimica::setElementMass(_el_ids[i], _shared_real_mem[i + 2]);
+
+      // Call Thermochimica for solve
+      Thermochimica::thermochimica();
+
+      // Check for error status
+      auto idbg = Thermochimica::checkInfoThermo();
+      if (idbg != 0)
+        mooseError("Thermochimica error ", idbg);
 
       break;
+    }
 
     case ReinitializationType::TIME:
+    {
+      // Set Thermochimica reinitialization to true
+      Thermochimica::setReinitRequested(true);
+
       // Set temperature and pressure for thermochemistry solver
-      Thermochimica::setTemperaturePressure(_current_state, );
-      setReinitializationData();
-      Thermochimica::Thermochimica();
+      Thermochimica::setTemperaturePressure(_shared_real_mem[0], _shared_real_mem[1]);
+
+      // Reset all element masses to 0
+      Thermochimica::setElementMass(0, 0.0);
+
+      // Set element masses
+      for (const auto i : make_range(_n_elements))
+        Thermochimica::setElementMass(_el_ids[i], _shared_real_mem[i + 2]);
+
+      // Find reinitialization data for the current ID
+      auto it = _data.find(_current_id);
+
+      // If available, set reinitialization data in Thermochimica
+      if (it != _data.end() && (it->second).reinitAvailable)
+      {
+        Thermochimica::resetReinit();
+        Thermochimica::setReinitData(it->second);
+      }
+
+      // Call Thermochimica for solve
+      Thermochimica::thermochimica();
+
+      // Check for error status
+      auto idbg = Thermochimica::checkInfoThermo();
+      if (idbg != 0)
+        mooseError("Thermochimica error ", idbg);
+
+      break;
+    }
+
+    case ReinitializationType::CACHE:
       break;
 
     default:
-      Thermochimica::Thermochimica();
+      break;
   }
 #endif
 }
@@ -549,10 +626,9 @@ ThermochimicaDataBase<is_nodal>::getReinitializationData()
     case ReinitializationType::NONE:
       break;
     case ReinitializationType::CACHE:
-      _thermo_cache.insert(_current_state, reinitialization_data);
       break;
     case ReinitializationType::TIME:
-      /* code */
+      _data[_current_id] = Thermochimica::getReinitData();
       break;
     default:
       break;
@@ -582,11 +658,9 @@ ThermochimicaDataBase<is_nodal>::setReinitializationData()
       break;
     }
     case ReinitializationType::CACHE:
-
-      const auto & neighbors = _thermo_cache.getNeighbor();
-
+      // const auto & neighbors = _thermo_cache.getNeighbor()
       break;
-    case ReintializationType::LAST_DOF:
+    case ReinitializationType::LAST_DOF:
     default:
       Thermochimica::setReinitRequested(true);
   }

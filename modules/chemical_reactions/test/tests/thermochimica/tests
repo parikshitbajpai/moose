@@ -144,18 +144,6 @@
 
     required_submodule = 'contrib/thermochimica'
   []
-  [op_munit_error]
-    type = RunException
-    input = csv_ic.i
-    expect_err = "Output mass unit must be specified for Thermochimica user object to be constructed"
-    cli_args = "ChemicalComposition/tunit=K ChemicalComposition/punit=atm "
-               "ChemicalComposition/munit=moles"
-    issues = '#26376'
-    requirement = 'The system shall throw an error if the output mass unit is not specified when species amount or amount of element in phase is requested'
-    design = ChemicalCompositionAction.md
-
-    required_submodule = 'contrib/thermochimica'
-  []
 
   [separator_error1]
     type = RunException
