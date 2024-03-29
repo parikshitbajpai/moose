@@ -102,7 +102,8 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
     _vp(_n_vapor_species),
     _el_pot(_n_potentials),
     _el_ph(_n_phase_elements),
-    _thermo_cache(ValueCache<Thermochimica::ReinitializationData>(_n_elements + 2))
+    _thermo_cache(ValueCache<Thermochimica::ReinitializationData>(_n_elements + 2)),
+    _current_state_space(_n_elements + 2)
 {
   ThermochimicaUtils::checkLibraryAvailability(*this);
 
@@ -503,7 +504,6 @@ ThermochimicaDataBase<is_nodal>::currentStateSpace()
 {
   for (const auto i : make_range(_n_elements + 2))
     _current_state_space[i] = _shared_real_mem[i];
-
   _moles_elements =
       std::accumulate(_current_state_space.begin() + 2, _current_state_space.end(), 0.0);
 
@@ -522,12 +522,10 @@ ThermochimicaDataBase<is_nodal>::getEquilibrium()
   {
     case ReinitializationType::CACHE:
     {
-      auto size = _thermo_cache.size();
-
-      const auto & [point, reinit_data, distance] = _thermo_cache.getNeighbor(_current_state_space);
-
-      if (size == 0 || distance > 1e-6)
+      if (_thermo_cache.size() == 0)
       {
+        currentStateSpace();
+
         // Set reinitialization data
         setReinitializationData();
 
@@ -541,14 +539,31 @@ ThermochimicaDataBase<is_nodal>::getEquilibrium()
 
         // Get reinitialization data for next time step
         getReinitializationData();
-
-        break;
       }
       else
       {
-        // Set reinitialization data
-        setReinitializationData();
-        // And let the variable writers take over
+        const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
+        if (distance < 1e-6)
+        { // Set reinitialization data
+          setReinitializationData();
+          // And let the variable writers take over
+        }
+        else
+        {
+          // Set reinitialization data
+          setReinitializationData();
+
+          // Call Thermochimica for solve
+          Thermochimica::thermochimica();
+
+          // Check for error status
+          auto idbg = Thermochimica::checkInfoThermo();
+          if (idbg != 0)
+            mooseError("Thermochimica error ", idbg);
+
+          // Get reinitialization data for next time step
+          getReinitializationData();
+        }
       }
 
       break;
@@ -619,10 +634,12 @@ ThermochimicaDataBase<is_nodal>::setReinitializationData()
   {
     case ReinitializationType::CACHE:
     {
-      const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
-
-      Thermochimica::resetReinit();
-      Thermochimica::setReinitData(value);
+      if (_thermo_cache.size() != 0)
+      {
+        const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
+        Thermochimica::resetReinit();
+        Thermochimica::setReinitData(value);
+      }
 
       break;
     }
@@ -661,7 +678,8 @@ ThermochimicaDataBase<is_nodal>::getReinitializationData()
   {
     case ReinitializationType::CACHE:
     {
-      _thermo_cache.insert(_current_state_space, Thermochimica::getReinitData());
+      const auto reinit_data = Thermochimica::getReinitData();
+      _thermo_cache.insert(_current_state_space, reinit_data);
       break;
     }
     case ReinitializationType::TIME:
