@@ -286,6 +286,11 @@ ThermochimicaDataBase<is_nodal>::execute()
   for (const auto i : make_range(_n_elements))
     _shared_real_mem[2 + i] = (*_el[i])[qp];
 
+  std::cout << "Memory set here ";
+  for (const auto i : make_range(_n_elements))
+    std::cout << _shared_real_mem[2 + i] << " ";
+  std::cout << '\n';
+
   // message child process to trigger calculation
   notify('A');
 
@@ -325,8 +330,12 @@ ThermochimicaDataBase<is_nodal>::server()
   // fetch data from shared memory
   _current_id = _shared_dofid_mem[0];
 
+  std::cout << "Current ID: " << _current_id << '\n';
   // Get Thermochemical equilibrium
   getEquilibrium();
+
+  std::cout << "Done getEquilibrium\n";
+  std::cout << '\n';
 
   // Get requested phase indices if phase concentration output was requested
   // i.e. if output_phases is coupled
@@ -348,6 +357,8 @@ ThermochimicaDataBase<is_nodal>::server()
       _shared_real_mem[idx] = moles_phase[index - 1];
     idx++;
   }
+
+  // std::cout << "Phases: " << Moose::stringify(_shared_real_mem) << '\n';
 
   // Get speciation from Thermochimica
   auto db_phases = Thermochimica::getPhaseNamesSystem();
@@ -504,6 +515,8 @@ ThermochimicaDataBase<is_nodal>::currentStateSpace()
 {
   for (const auto i : make_range(_n_elements + 2))
     _current_state_space[i] = _shared_real_mem[i];
+
+  std::cout << "Current State Space " << Moose::stringify(_current_state_space) << '\n';
   _moles_elements =
       std::accumulate(_current_state_space.begin() + 2, _current_state_space.end(), 0.0);
 
@@ -511,6 +524,8 @@ ThermochimicaDataBase<is_nodal>::currentStateSpace()
   std::for_each(_current_state_space.begin() + 2,
                 _current_state_space.end(),
                 [this](auto & el) { el /= this->_moles_elements; });
+
+  std::cout << "Normalised State Space " << Moose::stringify(_current_state_space) << '\n';
 }
 
 template <bool is_nodal>
@@ -518,13 +533,16 @@ void
 ThermochimicaDataBase<is_nodal>::getEquilibrium()
 {
 #ifdef THERMOCHIMICA_ENABLED
+  std::cout << "Elements: " << Moose::stringify(*_shared_real_mem) << '\n';
   switch (_reinit)
   {
     case ReinitializationType::CACHE:
     {
+      currentStateSpace();
+
       if (_thermo_cache.size() == 0)
       {
-        currentStateSpace();
+        std::cout << "No cache available, using full solve\n";
 
         // Set reinitialization data
         setReinitializationData();
@@ -544,12 +562,13 @@ ThermochimicaDataBase<is_nodal>::getEquilibrium()
       {
         const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
         if (distance < 1e-6)
-        { // Set reinitialization data
+        {
+          std::cout << "Using cache. Distance to neighbor = " << distance << '\n';
           setReinitializationData();
-          // And let the variable writers take over
         }
         else
         {
+          std::cout << "NOT using cache. Distance to neighbor = " << distance << '\n';
           // Set reinitialization data
           setReinitializationData();
 
