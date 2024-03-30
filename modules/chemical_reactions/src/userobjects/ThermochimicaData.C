@@ -102,8 +102,10 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
     _vp(_n_vapor_species),
     _el_pot(_n_potentials),
     _el_ph(_n_phase_elements),
-    _thermo_cache(ValueCache<Thermochimica::ReinitializationData>(_n_elements + 2)),
-    _current_state_space(_n_elements + 2)
+    // _thermo_cache(ValueCache<Thermochimica::ReinitializationData>(_n_elements + 2)),
+    _thermo_cache(ValueCache<std::vector<Real>>(_n_elements + 2)),
+    _current_state_space(_n_elements + 2),
+    _current_outputs(_n_phases + _n_species + _n_potentials + _n_vapor_species + _n_phase_elements)
 {
   ThermochimicaUtils::checkLibraryAvailability(*this);
 
@@ -159,10 +161,9 @@ ThermochimicaDataBase<is_nodal>::ThermochimicaDataBase(const InputParameters & p
   }
   // buffer size
   const auto dofid_size = std::max(/* send */ 1, /* receive */ 0);
-  const auto real_size =
-      std::max(/* send */ 2 + _n_elements,
-               /* receive */ _n_phases + _n_species + _element_potentials.size() +
-                   _n_vapor_species + _n_phase_elements);
+  const auto real_size = std::max(/* send */ 2 + _n_elements,
+                                  /* receive */ _n_phases + _n_species + _n_potentials +
+                                      _n_vapor_species + _n_phase_elements);
 
   // set up shared memory for communication with child process
   auto shared_mem =
@@ -286,16 +287,54 @@ ThermochimicaDataBase<is_nodal>::execute()
   for (const auto i : make_range(_n_elements))
     _shared_real_mem[2 + i] = (*_el[i])[qp];
 
-  std::cout << "Memory set here ";
-  for (const auto i : make_range(_n_elements))
-    std::cout << _shared_real_mem[2 + i] << " ";
-  std::cout << '\n';
+  if (_reinit == ReinitializationType::CACHE)
+  {
+    currentStateSpace();
 
-  // message child process to trigger calculation
-  notify('A');
+    if (_thermo_cache.size() != 0)
+    {
+      const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
 
-  // and wait for the child process to signal end of calculation
-  expect('B');
+      if (distance < 1e-6)
+        std::copy(value.begin(), value.end(), _current_outputs.begin());
+
+      else
+      {
+        // message child process to trigger calculation
+        notify('A');
+
+        // and wait for the child process to signal end of calculation
+        expect('B');
+
+        std::copy(
+            _shared_real_mem, _shared_real_mem + _current_outputs.size(), _current_outputs.begin());
+
+        _thermo_cache.insert(_current_state_space, _current_outputs);
+      }
+    }
+    else
+    { // message child process to trigger calculation
+      notify('A');
+
+      // and wait for the child process to signal end of calculation
+      expect('B');
+
+      std::copy(
+          _shared_real_mem, _shared_real_mem + _current_outputs.size(), _current_outputs.begin());
+
+      _thermo_cache.insert(_current_state_space, _current_outputs);
+    }
+
+    std::copy(_current_outputs.begin(), _current_outputs.end(), _shared_real_mem);
+  }
+  else
+  {
+    // message child process to trigger calculation
+    notify('A');
+
+    // and wait for the child process to signal end of calculation
+    expect('B');
+  }
 
   // unpack data from shared memory
   std::size_t idx = 0;
@@ -357,8 +396,6 @@ ThermochimicaDataBase<is_nodal>::server()
       _shared_real_mem[idx] = moles_phase[index - 1];
     idx++;
   }
-
-  // std::cout << "Phases: " << Moose::stringify(_shared_real_mem) << '\n';
 
   // Get speciation from Thermochimica
   auto db_phases = Thermochimica::getPhaseNamesSystem();
@@ -538,52 +575,67 @@ ThermochimicaDataBase<is_nodal>::getEquilibrium()
   {
     case ReinitializationType::CACHE:
     {
-      currentStateSpace();
 
-      if (_thermo_cache.size() == 0)
-      {
-        std::cout << "No cache available, using full solve\n";
+      // Set reinitialization data
+      setReinitializationData();
 
-        // Set reinitialization data
-        setReinitializationData();
+      // Call Thermochimica for solve
+      Thermochimica::thermochimica();
 
-        // Call Thermochimica for solve
-        Thermochimica::thermochimica();
+      // Check for error status
+      auto idbg = Thermochimica::checkInfoThermo();
+      if (idbg != 0)
+        mooseError("Thermochimica error ", idbg);
 
-        // Check for error status
-        auto idbg = Thermochimica::checkInfoThermo();
-        if (idbg != 0)
-          mooseError("Thermochimica error ", idbg);
+      // Get reinitialization data for next time step
+      getReinitializationData();
 
-        // Get reinitialization data for next time step
-        getReinitializationData();
-      }
-      else
-      {
-        const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
-        if (distance < 1e-6)
-        {
-          std::cout << "Using cache. Distance to neighbor = " << distance << '\n';
-          setReinitializationData();
-        }
-        else
-        {
-          std::cout << "NOT using cache. Distance to neighbor = " << distance << '\n';
-          // Set reinitialization data
-          setReinitializationData();
+      // currentStateSpace();
 
-          // Call Thermochimica for solve
-          Thermochimica::thermochimica();
+      // if (_thermo_cache.size() == 0)
+      // {
+      //   std::cout << "No cache available, using full solve\n";
 
-          // Check for error status
-          auto idbg = Thermochimica::checkInfoThermo();
-          if (idbg != 0)
-            mooseError("Thermochimica error ", idbg);
+      //   // // Set reinitialization data
+      //   // setReinitializationData();
 
-          // Get reinitialization data for next time step
-          getReinitializationData();
-        }
-      }
+      //   // Call Thermochimica for solve
+      //   Thermochimica::thermochimica();
+
+      //   // Check for error status
+      //   auto idbg = Thermochimica::checkInfoThermo();
+      //   if (idbg != 0)
+      //     mooseError("Thermochimica error ", idbg);
+
+      //   // Get reinitialization data for next time step
+      //   // getReinitializationData();
+      // }
+      // else
+      // {
+      //   const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
+      //   if (distance < 1e-6)
+      //   {
+      //     std::cout << "Using cache. Distance to neighbor = " << distance << '\n';
+      //     setReinitializationData();
+      //   }
+      //   else
+      //   {
+      //     std::cout << "NOT using cache. Distance to neighbor = " << distance << '\n';
+      //     // Set reinitialization data
+      //     setReinitializationData();
+
+      //     // Call Thermochimica for solve
+      //     Thermochimica::thermochimica();
+
+      //     // Check for error status
+      //     auto idbg = Thermochimica::checkInfoThermo();
+      //     if (idbg != 0)
+      //       mooseError("Thermochimica error ", idbg);
+
+      //     // Get reinitialization data for next time step
+      //     getReinitializationData();
+      //   }
+      // }
 
       break;
     }
@@ -653,12 +705,12 @@ ThermochimicaDataBase<is_nodal>::setReinitializationData()
   {
     case ReinitializationType::CACHE:
     {
-      if (_thermo_cache.size() != 0)
-      {
-        const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
-        Thermochimica::resetReinit();
-        Thermochimica::setReinitData(value);
-      }
+      // if (_thermo_cache.size() != 0)
+      // {
+      //   const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
+      //   Thermochimica::resetReinit();
+      //   Thermochimica::setReinitData(value);
+      // }
 
       break;
     }
@@ -697,8 +749,8 @@ ThermochimicaDataBase<is_nodal>::getReinitializationData()
   {
     case ReinitializationType::CACHE:
     {
-      const auto reinit_data = Thermochimica::getReinitData();
-      _thermo_cache.insert(_current_state_space, reinit_data);
+      // const auto reinit_data = Thermochimica::getReinitData();
+      // _thermo_cache.insert(_current_state_space, reinit_data);
       break;
     }
     case ReinitializationType::TIME:
@@ -750,70 +802,70 @@ ThermochimicaDataBase<is_nodal>::getData(dof_id_type id) const
 template class ThermochimicaDataBase<true>;
 template class ThermochimicaDataBase<false>;
 
-template <>
-void
-dataStore<Thermochimica::ReinitializationData>(std::ostream & stream,
-                                               Thermochimica::ReinitializationData & rd,
-                                               void * context)
-{
-  // Assemblage
-  storeHelper(stream, rd.assemblage, context);
+// template <>
+// void
+// dataStore<Thermochimica::ReinitializationData>(std::ostream & stream,
+//                                                Thermochimica::ReinitializationData & rd,
+//                                                void * context)
+// {
+//   // Assemblage
+//   storeHelper(stream, rd.assemblage, context);
 
-  // Moles of phase
-  storeHelper(stream, rd.molesPhase, context);
+//   // Moles of phase
+//   storeHelper(stream, rd.molesPhase, context);
 
-  // Element potentials
-  storeHelper(stream, rd.elementPotential, context);
+//   // Element potentials
+//   storeHelper(stream, rd.elementPotential, context);
 
-  // Chemical potentials
-  storeHelper(stream, rd.chemicalPotential, context);
+//   // Chemical potentials
+//   storeHelper(stream, rd.chemicalPotential, context);
 
-  // Speciation
-  storeHelper(stream, rd.moleFraction, context);
+//   // Speciation
+//   storeHelper(stream, rd.moleFraction, context);
 
-  // Number of elements in periodic table
-  storeHelper(stream, rd.nPeriodicTable, context);
+//   // Number of elements in periodic table
+//   storeHelper(stream, rd.nPeriodicTable, context);
 
-  // Elements used
-  storeHelper(stream, rd.elementsUsed, context);
+//   // Elements used
+//   storeHelper(stream, rd.elementsUsed, context);
 
-  // Reinitialization available
-  storeHelper(stream, rd.reinitAvailable, context);
+//   // Reinitialization available
+//   storeHelper(stream, rd.reinitAvailable, context);
 
-  // Number of GEM iterations
-  storeHelper(stream, rd.GEM_iterations, context);
-}
+//   // Number of GEM iterations
+//   storeHelper(stream, rd.GEM_iterations, context);
+// }
 
-template <>
-void
-dataLoad<Thermochimica::ReinitializationData>(std::istream & stream,
-                                              Thermochimica::ReinitializationData & rd,
-                                              void * context)
-{
-  // Assemblage
-  loadHelper(stream, rd.assemblage, context);
+// template <>
+// void
+// dataLoad<Thermochimica::ReinitializationData>(std::istream & stream,
+//                                               Thermochimica::ReinitializationData & rd,
+//                                               void * context)
+// {
+//   // Assemblage
+//   loadHelper(stream, rd.assemblage, context);
 
-  // Moles of phase
-  loadHelper(stream, rd.molesPhase, context);
+//   // Moles of phase
+//   loadHelper(stream, rd.molesPhase, context);
 
-  // Element potentials
-  loadHelper(stream, rd.elementPotential, context);
+//   // Element potentials
+//   loadHelper(stream, rd.elementPotential, context);
 
-  // Chemical potentials
-  loadHelper(stream, rd.chemicalPotential, context);
+//   // Chemical potentials
+//   loadHelper(stream, rd.chemicalPotential, context);
 
-  // Speciation
-  loadHelper(stream, rd.moleFraction, context);
+//   // Speciation
+//   loadHelper(stream, rd.moleFraction, context);
 
-  // Number of elements in periodic table
-  loadHelper(stream, rd.nPeriodicTable, context);
+//   // Number of elements in periodic table
+//   loadHelper(stream, rd.nPeriodicTable, context);
 
-  // Elements used
-  loadHelper(stream, rd.elementsUsed, context);
+//   // Elements used
+//   loadHelper(stream, rd.elementsUsed, context);
 
-  // Reinitialization available
-  loadHelper(stream, rd.reinitAvailable, context);
+//   // Reinitialization available
+//   loadHelper(stream, rd.reinitAvailable, context);
 
-  // Number of GEM iterations
-  loadHelper(stream, rd.GEM_iterations, context);
-}
+//   // Number of GEM iterations
+//   loadHelper(stream, rd.GEM_iterations, context);
+// }

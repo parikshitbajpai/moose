@@ -146,13 +146,16 @@ protected:
   dof_id_type _current_id;
 
   // Kd-Tree cache
-  ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
+  // ValueCache<Thermochimica::ReinitializationData> _thermo_cache;
+  ValueCache<std::vector<Real>> _thermo_cache;
 
   // Helper variables for KD-Tree cache
   // Total moles of elements in the system
   Real _moles_elements;
   // ValueCache key {T, P, {C_normalized}} (k = _n_elements + 2)
   std::vector<Real> _current_state_space;
+
+  std::vector<Real> _current_outputs;
 
   using ThermochimicaDataBaseParent<is_nodal>::isCoupled;
   using ThermochimicaDataBaseParent<is_nodal>::isParamValid;
@@ -164,12 +167,12 @@ protected:
 typedef ThermochimicaDataBase<true> ThermochimicaNodalData;
 typedef ThermochimicaDataBase<false> ThermochimicaElementData;
 
-template <>
-void dataStore<Thermochimica::ReinitializationData>(std::ostream & stream,
-                                                    Thermochimica::ReinitializationData & rd,
-                                                    void * context);
+// template <>
+// void dataStore<Thermochimica::ReinitializationData>(std::ostream & stream,
+//                                                     Thermochimica::ReinitializationData & rd,
+//                                                     void * context);
 
-template <>
-void dataLoad<Thermochimica::ReinitializationData>(std::istream & stream,
-                                                   Thermochimica::ReinitializationData & rd,
-                                                   void * context);
+// template <>
+// void dataLoad<Thermochimica::ReinitializationData>(std::istream & stream,
+//                                                    Thermochimica::ReinitializationData & rd,
+//                                                    void * context);
