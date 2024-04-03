@@ -295,7 +295,7 @@ ThermochimicaDataBase<is_nodal>::execute()
     {
       const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
 
-      if (distance < 1e-6)
+      if (distance < 1e-4)
         std::copy(value.begin(), value.end(), _current_outputs.begin());
 
       else
@@ -369,12 +369,8 @@ ThermochimicaDataBase<is_nodal>::server()
   // fetch data from shared memory
   _current_id = _shared_dofid_mem[0];
 
-  std::cout << "Current ID: " << _current_id << '\n';
   // Get Thermochemical equilibrium
   getEquilibrium();
-
-  std::cout << "Done getEquilibrium\n";
-  std::cout << '\n';
 
   // Get requested phase indices if phase concentration output was requested
   // i.e. if output_phases is coupled
@@ -553,7 +549,6 @@ ThermochimicaDataBase<is_nodal>::currentStateSpace()
   for (const auto i : make_range(_n_elements + 2))
     _current_state_space[i] = _shared_real_mem[i];
 
-  std::cout << "Current State Space " << Moose::stringify(_current_state_space) << '\n';
   _moles_elements =
       std::accumulate(_current_state_space.begin() + 2, _current_state_space.end(), 0.0);
 
@@ -561,8 +556,6 @@ ThermochimicaDataBase<is_nodal>::currentStateSpace()
   std::for_each(_current_state_space.begin() + 2,
                 _current_state_space.end(),
                 [this](auto & el) { el /= this->_moles_elements; });
-
-  std::cout << "Normalised State Space " << Moose::stringify(_current_state_space) << '\n';
 }
 
 template <bool is_nodal>
@@ -570,7 +563,6 @@ void
 ThermochimicaDataBase<is_nodal>::getEquilibrium()
 {
 #ifdef THERMOCHIMICA_ENABLED
-  std::cout << "Elements: " << Moose::stringify(*_shared_real_mem) << '\n';
   switch (_reinit)
   {
     case ReinitializationType::CACHE:
