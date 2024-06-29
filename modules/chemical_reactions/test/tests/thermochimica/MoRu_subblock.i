@@ -16,6 +16,7 @@
   munit = moles
   is_fv = true
   temperature = T
+  reinitialization_type = none
   [block_0]
     block = '0'
     elements = 'Mo Ru'
@@ -88,4 +89,5 @@
 
 [Outputs]
   exodus = true
+  perf_graph = true
 []

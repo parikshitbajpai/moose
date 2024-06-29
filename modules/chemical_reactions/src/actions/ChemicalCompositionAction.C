@@ -46,6 +46,10 @@ ChemicalCompositionAction::validParams()
   MooseEnum reinit_type("none time last_dof cache", "last_dof");
   params.addParam<MooseEnum>(
       "reinitialization_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
+  params.addParam<Real>(
+      "cache_tolerance",
+      1.0e-5,
+      "Tolerance to be used in determining if the nearest neighbor in cache is acceptable.");
   params.addParam<FileName>("initial_values", "The CSV file name with initial conditions.");
   params.addParam<FileName>("thermofile", "Thermodynamics model file");
 
@@ -545,6 +549,8 @@ ChemicalCompositionAction::act()
     uo_params.set<FileName>("thermofile") = getParam<FileName>("thermofile");
 
     uo_params.set<MooseEnum>("reinit_type") = getParam<MooseEnum>("reinitialization_type");
+
+    uo_params.set<Real>("cache_tolerance") = getParam<Real>("cache_tolerance");
 
     uo_params.set<MooseEnum>("output_species_unit") = getParam<MooseEnum>("output_species_unit");
 

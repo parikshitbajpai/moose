@@ -45,6 +45,9 @@ ThermochimicaDataBase<is_nodal>::validParams()
   MooseEnum reinit_type("none time last_dof cache", "last_dof");
   params.addParam<MooseEnum>(
       "reinit_type", reinit_type, "Reinitialization scheme to use with Thermochimica");
+  params.addParam<Real>("cache_tolerance",
+                        1.0e-5,
+                        "Tolerance for nearest neighbors for reinitialization using cache");
 
   params.addCoupledVar("output_element_potentials", "Chemical potentials of elements");
   params.addCoupledVar("output_phases", "Amounts of phases to be output");
@@ -289,13 +292,15 @@ ThermochimicaDataBase<is_nodal>::execute()
 
   if (_reinit == ReinitializationType::CACHE)
   {
+    auto cache_tolerance = this->template getParam<Real>("cache_tolerance");
+
     currentStateSpace();
 
     if (_thermo_cache.size() != 0)
     {
       const auto & [key, value, distance] = _thermo_cache.getNeighbor(_current_state_space);
 
-      if (distance < 1e-4)
+      if (distance < cache_tolerance)
         std::copy(value.begin(), value.end(), _current_outputs.begin());
 
       else
