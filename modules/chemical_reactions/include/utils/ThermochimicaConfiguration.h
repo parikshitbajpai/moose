@@ -27,7 +27,14 @@ struct ThermochimicaConfiguration
   {
     PREVIOUS_SOLVE,
     PREVIOUS_TIMESTEP,
+    NEAREST_CACHED,
     NONE
+  };
+
+  enum class Acceleration
+  {
+    EXACT,
+    ADAPTIVE
   };
 
   enum class PhaseSelection
@@ -180,8 +187,14 @@ struct ThermochimicaConfiguration
   std::string pressure;
   EvaluationLocation location = EvaluationLocation::NODAL;
   WarmStart warm_start = WarmStart::PREVIOUS_SOLVE;
+  Acceleration acceleration = Acceleration::EXACT;
   unsigned int batch_size = 32;
   bool report_performance = false;
+  unsigned int cache_max_entries = 10000;
+  unsigned int surrogate_neighbors = 0;
+  Real surrogate_relative_tolerance = 1e-4;
+  unsigned int surrogate_audit_interval = 100;
+  bool composition_is_fraction = false;
   PhaseSelection phase_selection = PhaseSelection::NONE;
   std::vector<std::string> selected_phases;
 
@@ -192,6 +205,10 @@ struct ThermochimicaConfiguration
   bool needs_phase_total = false;
   bool needs_system_properties = false;
   std::vector<OutputDescriptor> outputs;
+  std::vector<Real> surrogate_absolute_tolerances;
+  std::vector<unsigned char> output_extensive;
+  std::vector<unsigned char> output_nonnegative;
+  std::vector<unsigned char> output_fraction;
 
   std::vector<VariableName> element_variables;
 

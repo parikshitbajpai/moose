@@ -373,10 +373,87 @@
     type = RunApp
     input = MoRu.i
     cli_args = 'Outputs/exodus=false ChemicalComposition/thermo/report_performance=true'
-    expect_out = 'states=22, batches=1, exact_solves=22, warm_starts=21'
+    expect_out = 'states=22, batches=1, exact_solves=22, gem_iterations=[0-9]+, warm_starts=21'
     design = 'ThermochimicaData.md'
     issues = '#22711'
     requirement = 'The batched Thermochimica executor shall report solve, batch, and warm-start counters'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_exact_reuse]
+    type = RunApp
+    input = MoRu.i
+    cli_args = 'Outputs/exodus=false ChemicalComposition/thermo/acceleration=adaptive ChemicalComposition/thermo/report_performance=true'
+    expect_out = 'states=22, batches=1, exact_solves=11.*exact_reuse_hits=11, surrogate_hits=0'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall reuse an exact normalized state without another GEM solve'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_exact_reuse_results]
+    type = Exodiff
+    input = MoRu.i
+    exodiff = MoRu_out.e
+    cli_args = 'ChemicalComposition/thermo/acceleration=adaptive'
+    rel_err = 1e-3
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall preserve exact outputs when reusing an exact normalized state'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_interpolation]
+    type = RunApp
+    input = adaptive_interpolation.i
+    expect_out = 'states=21.*surrogate_hits=[1-9][0-9]*'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall interpolate a smooth bracketed state after validating its local phase regime and error'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_audit]
+    type = RunApp
+    input = adaptive_interpolation.i
+    cli_args = 'ChemicalComposition/thermo/surrogate_audit_interval=1'
+    expect_out = 'states=21.*audits=[1-9][0-9]*, audit_failures=[0-9]+'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall audit accepted interpolated states with exact GEM solves'
+    capabilities = 'thermochimica'
+  []
+
+  [nearest_cached_warm_start]
+    type = RunApp
+    input = MoRu.i
+    cli_args = 'Outputs/exodus=false ChemicalComposition/thermo/warm_start=nearest_cached ChemicalComposition/thermo/report_performance=true'
+    expect_out = 'states=22, batches=1, exact_solves=22.*nearest_warm_starts=21'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The exact Thermochimica executor shall warm start from the nearest cached equilibrium state'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_cache_capacity]
+    type = RunApp
+    input = MoRu.i
+    cli_args = 'Outputs/exodus=false ChemicalComposition/thermo/acceleration=adaptive ChemicalComposition/thermo/cache_max_entries=1 ChemicalComposition/thermo/report_performance=true'
+    expect_out = 'cache_entries=1, cache_saturated=1'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall stop admitting exact states and report saturation at its configured cache capacity'
+    capabilities = 'thermochimica'
+  []
+
+  [invalid_surrogate_tolerance_output]
+    type = RunException
+    input = MoRu.i
+    cli_args = "ChemicalComposition/thermo/surrogate_absolute_tolerances='missing:1e-6'"
+    expect_err = "surrogate_absolute_tolerances: Output variable 'missing' is not configured."
+    design = ChemicalCompositionAction.md
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall reject tolerances for unknown outputs'
     capabilities = 'thermochimica'
   []
 

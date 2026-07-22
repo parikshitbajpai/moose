@@ -20,7 +20,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <fstream>
+#include <map>
 #include <set>
 #include <type_traits>
 
@@ -67,7 +69,9 @@ ChemicalCompositionAction::validParams()
   params += BlockRestrictable::validParams();
 
   ThermochimicaUtils::addClassDescription(
-      params, "Creates variables and an exact batched Thermochimica equilibrium executor.");
+      params,
+      "Creates variables and a batched Thermochimica equilibrium executor with optional "
+      "adaptive acceleration.");
 
   params.addParam<std::vector<std::string>>(
       "elements", {"ALL"}, "Chemical elements to include, or ALL");
@@ -85,11 +89,30 @@ ChemicalCompositionAction::validParams()
   params.addParam<MooseEnum>("evaluation_location",
                              MooseEnum("nodal elemental", "nodal"),
                              "Location at which equilibrium is evaluated");
-  params.addParam<MooseEnum>("warm_start",
-                             MooseEnum("previous_solve previous_timestep none", "previous_solve"),
-                             "Exact Thermochimica warm-start strategy");
+  params.addParam<MooseEnum>(
+      "warm_start",
+      MooseEnum("previous_solve previous_timestep nearest_cached none", "previous_solve"),
+      "Exact Thermochimica warm-start strategy");
+  params.addParam<MooseEnum>(
+      "acceleration", MooseEnum("exact adaptive", "exact"), "Equilibrium evaluation strategy");
   params.addRangeCheckedParam<unsigned int>(
       "batch_size", 32, "batch_size > 0", "Number of states sent to each worker request");
+  params.addRangeCheckedParam<unsigned int>("cache_max_entries",
+                                            10000,
+                                            "cache_max_entries > 0",
+                                            "Maximum exact states cached by each worker");
+  params.addParam<unsigned int>(
+      "surrogate_neighbors", 0, "Neighbors used for adaptive prediction, or 0 for automatic");
+  params.addRangeCheckedParam<Real>("surrogate_relative_tolerance",
+                                    1e-4,
+                                    "surrogate_relative_tolerance >= 0",
+                                    "Relative leave-one-out acceptance tolerance");
+  params.addParam<std::vector<std::string>>(
+      "surrogate_absolute_tolerances",
+      {},
+      "Absolute acceptance tolerances as output_variable:value entries");
+  params.addParam<unsigned int>(
+      "surrogate_audit_interval", 100, "Exact audit interval for adaptive predictions");
   params.addParam<bool>(
       "report_performance", false, "Report state, batch, warm-start, and worker solve counters");
   params.addParam<FileName>("initial_composition_file", "CSV file containing constant element ICs");
@@ -162,6 +185,16 @@ ChemicalCompositionAction::initializeConfiguration()
   config.pressure = coupledInput("pressure");
   config.batch_size = getParam<unsigned int>("batch_size");
   config.report_performance = getParam<bool>("report_performance");
+  config.cache_max_entries = getParam<unsigned int>("cache_max_entries");
+  config.surrogate_neighbors = getParam<unsigned int>("surrogate_neighbors");
+  config.surrogate_relative_tolerance = getParam<Real>("surrogate_relative_tolerance");
+  config.surrogate_audit_interval = getParam<unsigned int>("surrogate_audit_interval");
+  config.acceleration = getParam<MooseEnum>("acceleration") == "adaptive"
+                            ? ThermochimicaConfiguration::Acceleration::ADAPTIVE
+                            : ThermochimicaConfiguration::Acceleration::EXACT;
+  config.composition_is_fraction = config.composition_unit == "mole fraction" ||
+                                   config.composition_unit == "atom fraction" ||
+                                   config.composition_unit == "mass fraction";
 
   const auto location = getParam<MooseEnum>("evaluation_location");
   config.location = location == "nodal" ? ThermochimicaConfiguration::EvaluationLocation::NODAL
@@ -171,6 +204,8 @@ ChemicalCompositionAction::initializeConfiguration()
     config.warm_start = ThermochimicaConfiguration::WarmStart::PREVIOUS_SOLVE;
   else if (warm_start == "previous_timestep")
     config.warm_start = ThermochimicaConfiguration::WarmStart::PREVIOUS_TIMESTEP;
+  else if (warm_start == "nearest_cached")
+    config.warm_start = ThermochimicaConfiguration::WarmStart::NEAREST_CACHED;
   else
     config.warm_start = ThermochimicaConfiguration::WarmStart::NONE;
 #ifdef THERMOCHIMICA_ENABLED
@@ -284,6 +319,96 @@ ChemicalCompositionAction::initializeConfiguration()
 
   buildLegacyOutputDescriptors(database_phases, database_species);
   buildTypedOutputDescriptors(database_phases, database_species, database_thermodynamic_species);
+
+  config.surrogate_absolute_tolerances.assign(config.outputs.size(), 0.0);
+  config.output_extensive.reserve(config.outputs.size());
+  config.output_nonnegative.reserve(config.outputs.size());
+  config.output_fraction.reserve(config.outputs.size());
+  std::map<VariableName, std::size_t> output_indices;
+  for (const auto i : index_range(config.outputs))
+  {
+    const auto & output = config.outputs[i];
+    output_indices.emplace(
+        std::visit([](const auto & descriptor) { return descriptor.variable; }, output), i);
+    std::visit(
+        [&](const auto & descriptor)
+        {
+          using Output = std::decay_t<decltype(descriptor)>;
+          bool extensive = false;
+          bool fraction = false;
+          if constexpr (std::is_same_v<Output, ThermochimicaConfiguration::PhaseOutput> ||
+                        std::is_same_v<Output, ThermochimicaConfiguration::SpeciesOutput>)
+          {
+            extensive = descriptor.unit == ThermochimicaConfiguration::AmountUnit::MOLES;
+            fraction = !extensive;
+          }
+          else if constexpr (std::is_same_v<Output,
+                                            ThermochimicaConfiguration::ElementDistributionOutput>)
+          {
+            extensive = descriptor.unit == ThermochimicaConfiguration::DistributionUnit::MOLES;
+            fraction = !extensive;
+          }
+          else if constexpr (std::is_same_v<Output,
+                                            ThermochimicaConfiguration::PhaseGibbsEnergyOutput>)
+            extensive = descriptor.unit == ThermochimicaConfiguration::GibbsEnergyUnit::JOULES;
+          else if constexpr (std::is_same_v<Output,
+                                            ThermochimicaConfiguration::SystemGibbsEnergyOutput> ||
+                             std::is_same_v<Output,
+                                            ThermochimicaConfiguration::SystemPropertyOutput>)
+            extensive = true;
+          else if constexpr (std::is_same_v<Output,
+                                            ThermochimicaConfiguration::ConstituentFractionOutput>)
+            fraction = true;
+          const bool amount =
+              std::is_same_v<Output, ThermochimicaConfiguration::PhaseOutput> ||
+              std::is_same_v<Output, ThermochimicaConfiguration::SpeciesOutput> ||
+              std::is_same_v<Output, ThermochimicaConfiguration::ElementDistributionOutput>;
+          const bool nonnegative =
+              fraction || amount ||
+              std::is_same_v<Output, ThermochimicaConfiguration::VaporPressureOutput>;
+          config.output_extensive.push_back(extensive);
+          config.output_nonnegative.push_back(nonnegative);
+          config.output_fraction.push_back(fraction);
+        },
+        output);
+  }
+
+  std::set<VariableName> tolerance_outputs;
+  for (const auto & item : getParam<std::vector<std::string>>("surrogate_absolute_tolerances"))
+  {
+    const auto separator = item.rfind(':');
+    if (separator == std::string::npos || separator == 0 || separator + 1 == item.size())
+      paramError("surrogate_absolute_tolerances",
+                 "Expected 'output_variable:value', received '",
+                 item,
+                 "'.");
+    const VariableName variable = item.substr(0, separator);
+    const auto found = output_indices.find(variable);
+    if (found == output_indices.end())
+      paramError(
+          "surrogate_absolute_tolerances", "Output variable '", variable, "' is not configured.");
+    if (!tolerance_outputs.insert(variable).second)
+      paramError("surrogate_absolute_tolerances",
+                 "Output variable '",
+                 variable,
+                 "' is listed more than once.");
+    Real tolerance = 0.0;
+    try
+    {
+      tolerance = MooseUtils::convert<Real>(item.substr(separator + 1));
+    }
+    catch (...)
+    {
+      paramError(
+          "surrogate_absolute_tolerances", "Tolerance for '", variable, "' is not a valid number.");
+    }
+    if (!std::isfinite(tolerance) || tolerance < 0.0)
+      paramError("surrogate_absolute_tolerances",
+                 "Tolerance for '",
+                 variable,
+                 "' must be finite and nonnegative.");
+    config.surrogate_absolute_tolerances[found->second] = tolerance;
+  }
 
   Thermochimica::resetThermoAll();
 #endif

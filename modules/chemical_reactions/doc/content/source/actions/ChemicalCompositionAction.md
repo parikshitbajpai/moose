@@ -196,7 +196,47 @@ The [!param](/ChemicalComposition/warm_start) controls the initial guess for eac
 
 - `previous_solve` is the default and reuses the preceding result from the same worker.
 - `previous_timestep` stores a result for each node or element and generally uses more memory.
+- `nearest_cached` reuses the closest normalized exact state retained by the worker. If that
+  reinitialization fails, the calculation is retried once without it.
 - `none` disables warm starts and does not allocate per-entity reinitialization storage.
+
+## Adaptive Equilibrium Acceleration
+
+The [!param](/ChemicalComposition/acceleration) parameter defaults to `exact`. Setting it to
+`adaptive` enables an in-situ cache in each Thermochimica worker. Temperature, pressure, and
+elemental composition are converted to dimensionless coordinates before lookup. Exact states with
+identical intensive coordinates are reused directly, with extensive outputs rescaled to the
+requested total composition.
+
+For a new state, the adaptive method considers the nearest
+[!param](/ChemicalComposition/surrogate_neighbors) exact states. It only interpolates when those
+states have the same stable phase assemblage, bracket the query in every input coordinate, and pass
+a leave-one-out error check. Amounts and pressures must remain nonnegative, and fractions must
+remain between zero and one. Any failed check falls back to an exact equilibrium solve.
+
+The acceptance check uses [!param](/ChemicalComposition/surrogate_relative_tolerance) together
+with optional per-output absolute tolerances:
+
+```text
+surrogate_absolute_tolerances = 'phase_amount:1e-12 mu:Mo:1e-3'
+```
+
+The last colon separates the output variable name from its tolerance, so legacy output names that
+contain colons are supported. Every
+[!param](/ChemicalComposition/surrogate_audit_interval) accepted predictions, the worker performs
+an exact solve, publishes the exact result, and reports whether the prediction met the configured
+tolerances. A value of zero disables audits.
+
+Cache entries are local to a worker and are not persisted or exchanged between threads or MPI
+ranks. [!param](/ChemicalComposition/cache_max_entries) bounds each worker cache; once full, the
+worker continues using existing entries but stops admitting new ones. Enable
+[!param](/ChemicalComposition/report_performance) to inspect exact solves, cache hits, rejection
+reasons, audits, warm starts, and saturation.
+
+!alert warning title=Empirical Error Control
+The leave-one-out check and exact audits provide empirical safeguards, not a mathematical error
+bound for every unaudited prediction. Use `acceleration = exact` when approximate equilibrium
+outputs are not acceptable.
 
 ## Example Input Syntax
 

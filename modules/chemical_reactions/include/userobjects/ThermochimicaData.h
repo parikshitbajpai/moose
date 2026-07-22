@@ -12,8 +12,11 @@
 #include "ThreadedGeneralUserObject.h"
 #include "BlockRestrictable.h"
 #include "ThermochimicaConfiguration.h"
+#include "ValueCache.h"
 #include "libmesh/dof_object.h"
 
+#include <memory>
+#include <optional>
 #include <unordered_map>
 #include <sys/types.h>
 
@@ -30,7 +33,7 @@ class Elem;
 }
 
 /**
- * Executes exact Thermochimica equilibrium calculations in batches.
+ * Executes Thermochimica equilibrium calculations in exact or adaptive batches.
  *
  * Each threaded copy owns an isolated worker process because Thermochimica stores its state in
  * Fortran modules. The action is the only supported way to construct this object.
@@ -59,6 +62,21 @@ protected:
     unsigned int command = 0;
     unsigned int count = 0;
     unsigned int warm_starts = 0;
+    unsigned int exact_solves = 0;
+    unsigned int gem_iterations = 0;
+    unsigned int exact_reuse_hits = 0;
+    unsigned int surrogate_hits = 0;
+    unsigned int phase_rejections = 0;
+    unsigned int geometry_rejections = 0;
+    unsigned int error_rejections = 0;
+    unsigned int invariant_rejections = 0;
+    unsigned int invalid_state_rejections = 0;
+    unsigned int audits = 0;
+    unsigned int audit_failures = 0;
+    unsigned int nearest_warm_starts = 0;
+    unsigned int cold_retries = 0;
+    unsigned int cache_entries = 0;
+    unsigned int cache_saturated = 0;
     int worker_status = 0;
     Real solve_seconds = 0;
   };
@@ -75,6 +93,14 @@ protected:
   void initializeThermochimica();
   int solveRow(unsigned int row);
 #ifdef THERMOCHIMICA_ENABLED
+  struct CacheRecord
+  {
+    std::vector<Real> outputs;
+    std::vector<int> phase_signature;
+    Real total_scale = 1.0;
+    std::optional<Thermochimica::ReinitializationData> reinit;
+  };
+
   struct OutputEvaluationContext
   {
     bool use_indexed_outputs;
@@ -119,6 +145,15 @@ protected:
                      Real & value) const;
   bool loadPreviousState(dof_id_type id);
   void storePreviousState(dof_id_type id);
+  bool normalizedInput(unsigned int row, std::vector<Real> & key, Real & total_scale) const;
+  bool predictRow(unsigned int row, const std::vector<Real> & key, Real total_scale, bool & audit);
+  void cacheExactRow(unsigned int row,
+                     const std::vector<Real> & key,
+                     Real total_scale,
+                     const std::vector<int> & phase_signature,
+                     const Thermochimica::ReinitializationData * reinit);
+  bool loadNearestState(const std::vector<Real> & key, Real total_scale);
+  bool outputsWithinTolerance(const std::vector<Real> & expected, const Real * actual) const;
 #endif
   void flushBatch(unsigned int count);
   void publishRow(unsigned int row);
@@ -155,6 +190,21 @@ protected:
   unsigned long _evaluated_states = 0;
   unsigned long _batches = 0;
   unsigned long _warm_starts = 0;
+  unsigned long _exact_solves = 0;
+  unsigned long _gem_iterations = 0;
+  unsigned long _exact_reuse_hits = 0;
+  unsigned long _surrogate_hits = 0;
+  unsigned long _phase_rejections = 0;
+  unsigned long _geometry_rejections = 0;
+  unsigned long _error_rejections = 0;
+  unsigned long _invariant_rejections = 0;
+  unsigned long _invalid_state_rejections = 0;
+  unsigned long _audits = 0;
+  unsigned long _audit_failures = 0;
+  unsigned long _nearest_warm_starts = 0;
+  unsigned long _cold_retries = 0;
+  unsigned long _cache_entries = 0;
+  bool _cache_saturated = false;
   Real _solve_seconds = 0;
   Real _packing_seconds = 0;
   Real _ipc_seconds = 0;
@@ -166,6 +216,10 @@ protected:
   std::vector<int> _previous_state_integers;
   std::vector<Real> _previous_state_reals;
   std::vector<unsigned char> _previous_state_available;
+  std::unique_ptr<ValueCache<std::size_t>> _cache;
+  std::vector<CacheRecord> _cache_records;
+  unsigned long _worker_accepted_predictions = 0;
+  std::vector<Real> _audit_prediction;
 #endif
   bool _worker_has_previous_solve = false;
 };
