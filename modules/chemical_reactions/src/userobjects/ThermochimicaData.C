@@ -11,6 +11,8 @@
 #include "ThermochimicaUtils.h"
 #include "MooseVariable.h"
 #include "MooseVariableField.h"
+#include "MooseVariableFE.h"
+#include "MooseVariableFV.h"
 #include "MooseMesh.h"
 #include "MooseUtils.h"
 #include "FEProblemBase.h"
@@ -31,6 +33,7 @@
 #include <cstring>
 #include <new>
 #include <numeric>
+#include <type_traits>
 
 #ifdef THERMOCHIMICA_ENABLED
 #include "Thermochimica-cxx.h"
@@ -151,7 +154,9 @@ ThermochimicaData::inputSource(const std::string & value)
 }
 
 Real
-ThermochimicaData::inputValue(const InputSource & source, const bool nodal) const
+ThermochimicaData::inputValue(const InputSource & source,
+                              const bool nodal,
+                              const libMesh::Elem * elem) const
 {
   if (!source.variable)
     return source.constant;
@@ -162,7 +167,13 @@ ThermochimicaData::inputValue(const InputSource & source, const bool nodal) cons
       mooseError("Nodal Thermochimica inputs must be nodal finite-element variables.");
     return variable->nodalValue();
   }
-  return source.variable->sln()[0];
+  if (!elem)
+    mooseError("An element is required to evaluate an elemental Thermochimica input.");
+  if (const auto * variable = dynamic_cast<const MooseVariableFE<Real> *>(source.variable))
+    return variable->getElementalValue(elem);
+  if (const auto * variable = dynamic_cast<const MooseVariableFV<Real> *>(source.variable))
+    return variable->getElementalValue(elem);
+  mooseError("Elemental Thermochimica inputs must be finite-element or finite-volume variables.");
 }
 
 bool
@@ -195,10 +206,13 @@ ThermochimicaData::execute()
     const auto id = entity.id();
     _entity_ids[row] = id;
     auto * input = _inputs + row * _configuration->inputWidth();
-    input[0] = inputValue(_temperature, _nodal);
-    input[1] = inputValue(_pressure, _nodal);
+    const libMesh::Elem * elem = nullptr;
+    if constexpr (std::is_same_v<std::decay_t<decltype(entity)>, libMesh::Elem>)
+      elem = &entity;
+    input[0] = inputValue(_temperature, _nodal, elem);
+    input[1] = inputValue(_pressure, _nodal, elem);
     for (const auto i : index_range(_elements))
-      input[2 + i] = inputValue({_elements[i], 0}, _nodal);
+      input[2 + i] = inputValue({_elements[i], 0}, _nodal, elem);
     _packing_seconds +=
         std::chrono::duration<Real>(std::chrono::steady_clock::now() - packing_start).count();
 

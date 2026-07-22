@@ -124,7 +124,7 @@ protected:
   void publishRow(unsigned int row);
 
   InputSource inputSource(const std::string & value);
-  Real inputValue(const InputSource & source, bool nodal) const;
+  Real inputValue(const InputSource & source, bool nodal, const libMesh::Elem * elem = nullptr) const;
   bool ownsEntity(dof_id_type id) const;
   bool includesNode(const libMesh::Node & node) const;
   bool includesElement(const libMesh::Elem & elem) const;
