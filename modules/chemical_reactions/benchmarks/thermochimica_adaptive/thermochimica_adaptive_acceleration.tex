@@ -1,0 +1,501 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert_2}
+\newcommand{\abs}[1]{\left\lvert #1\right\rvert}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Adaptive Acceleration of Thermochimica Equilibrium Calculations in MOOSE}
+\author{MOOSE Chemical Reactions Module}
+\date{Implementation note, \today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Thermochimica computes a thermodynamic equilibrium by a Gibbs energy minimization (GEM).  This
+work can dominate a multiphysics calculation when the equilibrium map is evaluated at every mesh
+entity and time step.  The MOOSE adaptive capability reduces the number of GEM calls by caching
+exact states and using a local, phase-aware inverse-distance surrogate.  A prediction is published
+only after phase, geometry, leave-one-out error, and physical-invariant checks pass.  Otherwise,
+the exact Thermochimica calculation is performed.  Periodic exact audits measure the empirical
+error of accepted predictions and always publish the exact result.  This note defines the
+implemented algorithm mathematically, documents its control flow and counters, and states its
+limitations.  Exact mode remains the default.
+\end{abstract}
+
+\tableofcontents
+
+\section{Problem statement}
+
+Let $T$ and $P$ denote temperature and pressure, and let
+$\boldsymbol{a}=(a_1,\ldots,a_n)^T$ contain nonnegative elemental inputs.  Abstractly,
+Thermochimica solves a constrained equilibrium problem of the form
+\begin{equation}
+  \boldsymbol{n}^{\star}(T,P,\boldsymbol{a})
+  \in \underset{\boldsymbol{n}\geq 0}{\operatorname{argmin}}
+  \;G(T,P,\boldsymbol{n})
+  \quad\text{subject to}\quad
+  \mathbf{A}\boldsymbol{n}=\boldsymbol{a},
+  \label{eq:gem}
+\end{equation}
+where $\boldsymbol{n}$ represents phase and species amounts and $\mathbf{A}$ enforces elemental
+conservation.  The configured output map is
+\begin{equation}
+  \boldsymbol{y}=\mathcal{F}(T,P,\boldsymbol{a})\in\R^m.
+  \label{eq:map}
+\end{equation}
+It may contain phase or species amounts, fractions, potentials, pressures, Gibbs energies, driving
+forces, and integral system properties.
+
+Within a fixed active phase assemblage, $\mathcal{F}$ is often locally smooth.  At a phase
+boundary its derivatives may change abruptly and an output may appear or disappear.  The adaptive
+method therefore treats a canonical phase assemblage as a discrete local regime rather than
+assuming that one globally smooth surrogate exists.
+
+The method is an in-situ tabulation algorithm: it learns only from exact states visited by the
+simulation.  It does not train an offline model and it does not alter the thermodynamic database or
+the GEM equations.
+
+\section{Normalized state and cached values}
+
+\subsection{Input coordinates}
+
+All neighbor searches use the normalized coordinate
+\begin{equation}
+  \boldsymbol{z}
+  =\left[
+    \frac{T_K}{298.15\ \mathrm{K}},
+    \frac{P_{\mathrm{bar}}}{1\ \mathrm{bar}},
+    \frac{a_1}{A},\ldots,\frac{a_n}{A}
+  \right]^T\in\R^d,
+  \qquad
+  A=\sum_{i=1}^{n}a_i,
+  \qquad d=n+2.
+  \label{eq:key}
+\end{equation}
+The implementation converts the configured temperature unit to kelvin and the configured pressure
+unit to bar before applying Equation~\eqref{eq:key}.  It accepts K, C, F, or R for temperature and
+bar, atm, psi, Pa, or kPa for pressure.
+
+A state is cacheable only if all raw inputs are finite and
+\begin{equation}
+  T_K>0,\qquad P_{\mathrm{bar}}>0,\qquad a_i\geq 0\ \forall i,
+  \qquad A>0.
+  \label{eq:valid-state}
+\end{equation}
+Failure of any condition in Equation~\eqref{eq:valid-state} bypasses cache lookup and interpolation.
+Thermochimica is still called exactly, so the solver remains responsible for its usual input
+validation and error reporting.
+
+The output scaling factor is
+\begin{equation}
+  s=\begin{cases}
+    1, & \text{mole-, atom-, or mass-fraction composition input},\\
+    A, & \text{amount- or mass-based composition input}.
+  \end{cases}
+  \label{eq:scale}
+\end{equation}
+Thus the neighbor coordinates depend on composition ratios, while $s$ retains the magnitude needed
+to reconstruct extensive outputs.
+
+\subsection{Output normalization}
+
+For every configured output $j$, the setup phase records an extensivity flag $e_j\in\{0,1\}$.
+An exact output is stored as
+\begin{equation}
+  \bar y_j=\frac{y_j}{s^{e_j}},
+  \label{eq:output-normalization}
+\end{equation}
+and a cache prediction is returned in physical units as
+\begin{equation}
+  \widehat y_j=s^{e_j}\widehat{\bar y}_j.
+  \label{eq:output-rescaling}
+\end{equation}
+The implemented classifications are summarized in Table~\ref{tab:output-types}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Output metadata used by the adaptive checks.}
+  \label{tab:output-types}
+  \begin{tabular}{lll}
+    \toprule
+    Output category & Extensive when & Additional invariant \\
+    \midrule
+    Phase or species output & unit is moles & amount $\geq 0$; fraction in $[0,1]$ \\
+    Element distribution & unit is moles & amount $\geq 0$; fraction in $[0,1]$ \\
+    Phase Gibbs energy & unit is joules & none \\
+    System Gibbs energy & always & none \\
+    Enthalpy, entropy, heat capacity & always & none \\
+    Vapor pressure & never & value $\geq 0$ \\
+    Element/component potential & never & none \\
+    Phase driving force & never & none \\
+    Constituent fraction & never & value in $[0,1]$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+An exact cache record $r$ contains
+\begin{equation}
+  r=\left(\boldsymbol{z},\bar{\boldsymbol{y}},s,
+  \mathcal{S},\mathcal{R}\right),
+  \label{eq:record}
+\end{equation}
+where $\mathcal{S}$ is the phase signature and $\mathcal{R}$ is optional Thermochimica
+reinitialization data.  The phase signature is constructed by removing zero identifiers from the
+signed Thermochimica assemblage vector and sorting the remaining identifiers.  Sorting makes the
+signature independent of phase ordering; retaining signs preserves Thermochimica's assemblage
+semantics.
+
+Each Thermochimica worker owns a separate cache.  New exact records are admitted until
+\code{cache\_max\_entries} is reached.  The first release has no eviction, persistence, or
+cross-worker exchange.
+
+\section{Adaptive prediction}
+
+\subsection{Exact-state reuse}
+
+The cache uses an unscaled Euclidean $k$-d tree in the normalized coordinates.  Its reported
+distance is the squared Euclidean distance
+\begin{equation}
+  D(\boldsymbol{z},\boldsymbol{z}_i)=
+  \norm{\boldsymbol{z}-\boldsymbol{z}_i}^{2}.
+  \label{eq:distance}
+\end{equation}
+If the nearest record satisfies $D\leq 10^{-24}$, its normalized exact outputs are rescaled using
+Equation~\eqref{eq:output-rescaling} and returned immediately.  This is counted as an exact reuse
+hit, not as an approximate surrogate hit, and is not subjected to auditing.
+
+\subsection{Local cloud size and phase guard}
+
+Let $K$ be \code{surrogate\_neighbors}.  If the user specifies zero, the automatic choice is
+\begin{equation}
+  K=\max(2d+1,8).
+  \label{eq:auto-k}
+\end{equation}
+The validation cloud contains the $L=K+1$ nearest exact records.  If fewer than $L$ records exist,
+the prediction is rejected.  All $L$ records must have exactly the same canonical signature:
+\begin{equation}
+  \mathcal{S}_1=\mathcal{S}_2=\cdots=\mathcal{S}_L.
+  \label{eq:phase-guard}
+\end{equation}
+A mixed cloud is rejected even if its closest member is very near the query.
+
+\subsection{Geometric guard}
+
+For every coordinate $q\in\{1,\ldots,d\}$, define the coordinate-wise range of the local cloud,
+\begin{equation}
+  z_q^{\min}=\min_{i=1,\ldots,L}z_{iq},
+  \qquad
+  z_q^{\max}=\max_{i=1,\ldots,L}z_{iq}.
+\end{equation}
+The query must lie in the axis-aligned local bounding box,
+\begin{equation}
+  z_q^{\min}-\delta_q\leq z_q\leq z_q^{\max}+\delta_q
+  \quad\forall q,
+  \qquad
+  \delta_q=10^{-12}\max\left(1,\abs{z_q^{\min}},\abs{z_q^{\max}}\right).
+  \label{eq:box}
+\end{equation}
+This guard prevents coordinate-wise extrapolation.  It is less restrictive than requiring the
+query to lie in the convex hull of the neighbors.
+
+\subsection{Leave-one-out empirical error guard}
+
+Every member of the local cloud is reconstructed from the other $L-1$ members.  Holding out record
+$h$, define inverse-square-distance weights
+\begin{equation}
+  w_{hi}=\frac{1}{\max\!\left(
+  \norm{\boldsymbol{z}_h-\boldsymbol{z}_i}^{2},10^{-24}\right)},
+  \qquad i\neq h,
+  \label{eq:loo-weight}
+\end{equation}
+and the normalized output reconstruction
+\begin{equation}
+  \widehat{\bar y}_{hj}^{(-h)}
+  =\frac{\displaystyle\sum_{i\neq h}w_{hi}\bar y_{ij}}
+  {\displaystyle\sum_{i\neq h}w_{hi}}.
+  \label{eq:loo-prediction}
+\end{equation}
+For user-specified relative tolerance $\varepsilon_r$ and output-specific absolute tolerance
+$\varepsilon_{a,j}$, every held-out output must satisfy
+\begin{equation}
+  \abs{\bar y_{hj}-\widehat{\bar y}_{hj}^{(-h)}}
+  \leq
+  \frac{\varepsilon_{a,j}}{s_h^{e_j}}
+  +\varepsilon_r\max\left(
+    \abs{\bar y_{hj}},
+    \abs{\widehat{\bar y}_{hj}^{(-h)}}
+  \right).
+  \label{eq:loo-test}
+\end{equation}
+The normalization of $\varepsilon_{a,j}$ in Equation~\eqref{eq:loo-test} is necessary because
+extensive outputs are stored per unit input scale.  Acceptance requires Equation~\eqref{eq:loo-test}
+for every $h\in\{1,\ldots,L\}$ and every $j\in\{1,\ldots,m\}$.  One failure rejects the entire
+vector prediction; outputs are never accepted independently.
+
+\subsection{Query prediction and invariants}
+
+After all guards pass, the final normalized prediction uses all $L$ neighbors:
+\begin{align}
+  w_i&=\frac{1}{\max\!\left(
+  \norm{\boldsymbol{z}-\boldsymbol{z}_i}^{2},10^{-24}\right)},\\
+  \widehat{\bar y}_j
+  &=\frac{\displaystyle\sum_{i=1}^{L}w_i\bar y_{ij}}
+  {\displaystyle\sum_{i=1}^{L}w_i},
+  \qquad
+  \widehat y_j=s^{e_j}\widehat{\bar y}_j.
+  \label{eq:query-prediction}
+\end{align}
+All weights are positive, so each normalized prediction lies between the minimum and maximum
+neighbor values for that output.  The complete prediction is rejected if any value is non-finite,
+if an amount or pressure is negative, or if a fraction is less than zero or greater than one.
+Invalid values are not clamped.
+
+\section{Auditing and exact fallback}
+
+Let $M$ be \code{surrogate\_audit\_interval}.  Accepted approximate predictions are numbered
+locally within each worker.  When $M>0$, every $M$th accepted prediction is recomputed exactly:
+\begin{equation}
+  p\bmod M=0,
+  \label{eq:audit-schedule}
+\end{equation}
+where $p$ is the worker's accepted-prediction count.  The exact value, never the approximate value,
+is published for an audited state.  For each output the audit applies the physical-unit test
+\begin{equation}
+  \abs{\widehat y_j-y_j^{\mathrm{exact}}}
+  \leq \varepsilon_{a,j}
+  +\varepsilon_r\max\left(
+    \abs{\widehat y_j},\abs{y_j^{\mathrm{exact}}}
+  \right).
+  \label{eq:audit-test}
+\end{equation}
+An audit failure increments telemetry but does not terminate the application.  The exact result is
+cached if capacity remains.  Setting $M=0$ disables auditing.
+
+Any empty-cache, insufficient-neighbor, phase, geometry, empirical-error, or invariant rejection
+falls back to Equation~\eqref{eq:gem}.  A successful exact calculation is evaluated for all
+requested outputs and inserted into the cache while capacity remains.  If the exact GEM fails, the
+normal Thermochimica error path is used.
+
+\section{Exact-solve warm starts}
+
+Surrogate acceptance determines whether GEM is needed; warm-start selection determines how a GEM
+call is initialized.  The available modes are:
+\begin{description}[style=nextline]
+  \item[\code{none}] Do not request Thermochimica reinitialization.
+  \item[\code{previous\_solve}] Reuse the preceding solve in the same worker.
+  \item[\code{previous\_timestep}] Reuse stored reinitialization data for the same mesh entity.
+  \item[\code{nearest\_cached}] Load reinitialization data from the nearest normalized exact cache
+  record.
+\end{description}
+
+For \code{nearest\_cached}, the currently implemented rescaling copies the cached reinitialization
+record and multiplies its \code{molesPhase} entries by
+\begin{equation}
+  \rho=\frac{s_{\mathrm{query}}}{s_{\mathrm{record}}}.
+  \label{eq:warm-rescale}
+\end{equation}
+If this warm GEM call fails, Thermochimica state and reinitialization data are reset and the same
+state is retried once without reinitialization.  The retry is counted as an additional exact solve
+and as a cold retry.  Warm starts affect computational cost, but a converged exact solve is expected
+to represent the same equilibrium map $\mathcal{F}$.
+
+\section{Control flow}
+
+Figure~\ref{fig:flow} shows the decision path for one state.  ``Return prediction'' means that no
+GEM call is made.  An audit deliberately follows the exact branch and publishes the exact output.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    node distance=6mm and 12mm,
+    font=\small,
+    box/.style={draw, rounded corners, align=center, minimum width=32mm, minimum height=8mm},
+    decision/.style={draw, diamond, aspect=2.1, align=center, inner sep=1.5pt},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+  ]
+    \node[box] (input) {Read $T,P,\boldsymbol{a}$};
+    \node[decision, below=of input] (mode) {adaptive and\\cacheable?};
+    \node[decision, below=of mode] (same) {$D\leq10^{-24}$?};
+    \node[box, right=of same] (reuse) {Rescale and return\\exact cache record};
+    \node[decision, below=of same] (guards) {$L$ records and all\\guards pass?};
+    \node[box, right=of guards] (predict) {Compute inverse-distance\\prediction};
+    \node[decision, below=of predict] (audit) {audit due?};
+    \node[box, below=of guards] (gem) {Select warm start\\and run exact GEM};
+    \node[decision, below=of gem] (retry) {nearest-cache\\warm solve failed?};
+    \node[box, right=of retry] (cold) {Reset and retry\\cold once};
+    \node[box, below=of retry] (store) {Evaluate exact outputs;\\cache if below capacity};
+    \node[box, below=of store] (return) {Publish exact outputs};
+    \node[box, right=of audit] (surrogate) {Publish surrogate outputs};
+
+    \draw[arrow] (input) -- (mode);
+    \draw[arrow] (mode) -- node[left]{yes} (same);
+    \draw[arrow] (mode.west) -| node[above left]{no} (gem.west);
+    \draw[arrow] (same) -- node[above]{yes} (reuse);
+    \draw[arrow] (same) -- node[left]{no} (guards);
+    \draw[arrow] (guards) -- node[above]{yes} (predict);
+    \draw[arrow] (guards) -- node[left]{no} (gem);
+    \draw[arrow] (predict) -- (audit);
+    \draw[arrow] (audit) -- node[above]{no} (surrogate);
+    \draw[arrow] (audit.west) -| node[above left]{yes} (gem.east);
+    \draw[arrow] (gem) -- (retry);
+    \draw[arrow] (retry) -- node[above]{yes} (cold);
+    \draw[arrow] (retry) -- node[left]{no} (store);
+    \draw[arrow] (cold) |- (store);
+    \draw[arrow] (store) -- (return);
+  \end{tikzpicture}
+  \caption{Per-state adaptive execution flow.  Exact mode enters the GEM branch directly.}
+  \label{fig:flow}
+\end{figure}
+
+The acceptance funnel in Figure~\ref{fig:funnel} emphasizes that each test is conjunctive.  A
+prediction is usable only if it survives every layer.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    font=\small,
+    stage/.style={draw, trapezium, trapezium left angle=75, trapezium right angle=105,
+                  align=center, minimum height=9mm},
+    node distance=4mm,
+    arrow/.style={-{Latex[length=2mm]}, thick}
+  ]
+    \node[stage, minimum width=105mm] (enough) {$K+1$ exact neighbors available};
+    \node[stage, minimum width=88mm, below=of enough] (phase) {one canonical phase signature};
+    \node[stage, minimum width=72mm, below=of phase] (geometry) {query inside local coordinate bounds};
+    \node[stage, minimum width=57mm, below=of geometry] (loo) {all leave-one-out tests pass};
+    \node[stage, minimum width=43mm, below=of loo] (invariant) {all invariants pass};
+    \node[stage, minimum width=29mm, below=of invariant] (accepted) {accepted};
+    \draw[arrow] (enough) -- (phase);
+    \draw[arrow] (phase) -- (geometry);
+    \draw[arrow] (geometry) -- (loo);
+    \draw[arrow] (loo) -- (invariant);
+    \draw[arrow] (invariant) -- (accepted);
+  \end{tikzpicture}
+  \caption{Adaptive acceptance funnel.  Rejection at any level triggers an exact solve.}
+  \label{fig:funnel}
+\end{figure}
+
+\clearpage
+
+\section{Telemetry and interpretation}
+
+When \code{report\_performance=true}, MOOSE reports state and timing counters aggregated from its
+worker processes.  The adaptive-specific quantities have the following meanings:
+\begin{itemize}[leftmargin=*]
+  \item \code{exact\_solves}: Thermochimica calls, including a cold retry after a failed nearest
+  warm start;
+  \item \code{gem\_iterations}: iterations reported in saved reinitialization data;
+  \item \code{exact\_reuse\_hits}: identical normalized cache lookups;
+  \item \code{surrogate\_hits}: accepted and published approximate results; audited predictions
+  are not included;
+  \item \code{phase}, \code{geometry}, \code{error}, \code{invariant}, and
+  \code{invalid\_state} rejections: the first failed guard for a state;
+  \item \code{audits} and \code{audit\_failures}: exact checks and failures of
+  Equation~\eqref{eq:audit-test};
+  \item \code{nearest\_warm\_starts} and \code{cold\_retries}: cache-based exact initializations
+  and their fallback retries; and
+  \item \code{cache\_entries} and \code{cache\_saturated}: current occupancy and whether admission
+  capacity has been reached.
+\end{itemize}
+An exact-solve counter is a call count rather than a state count, because one state can incur a
+warm attempt and a cold retry.  Worker solve time excludes parent-side packing and interprocess
+communication, which are reported separately.  Since caches and audit sequences are worker-local,
+thread or MPI decompositions can change hit counts without changing the configured algorithm.
+
+\section{Computational cost}
+
+Let $N$ be cache size, $d=n+2$ input dimension, $m$ output count, and $L=K+1$ local records.  A
+$k$-d tree usually makes neighbor retrieval sublinear in $N$, although worst-case behavior
+degrades in high dimension.  Once neighbors are found, the bounding-box check costs
+$O(Ld)$, leave-one-out validation costs $O(L^2(d+m))$, and the final interpolation costs
+$O(L(d+m))$.  Cache storage is approximately $O(N(d+m+r))$, where $r$ denotes optional
+reinitialization-state storage.  These costs are profitable only when they are appreciably smaller
+than the avoided GEM calculations; the benchmark suite measures that crossover directly.
+
+\section{Guarantees and limitations}
+
+The safeguards provide empirical error control, not a mathematical error bound for every unaudited
+query.  In particular:
+\begin{itemize}[leftmargin=*]
+  \item Leave-one-out consistency measures the observed local cloud; it cannot detect behavior not
+  represented by those exact records.
+  \item Equal neighbor signatures reduce phase-boundary risk, but they do not prove that the query
+  has that assemblage.  The axis-aligned bounding box is also not a convex-hull test.
+  \item Temperature, pressure, and composition coordinates use fixed reference scales.  No local
+  sensitivity metric or anisotropic region of accuracy is currently learned.
+  \item The $n$ normalized elemental fractions sum to one, so one composition coordinate is
+  redundant.  It is retained to keep the mapping to configured elements simple and deterministic.
+  \item Positive interpolation weights preserve each neighbor output range but do not enforce
+  coupled thermodynamic identities or elemental conservation between different output fields.
+  \item Auditing is deterministic within a worker, but worker-local cache histories mean parallel
+  runs need not audit or accept the same state sequence.
+  \item A saturated cache stops learning.  It remains usable for lookup, but no eviction or
+  replacement policy adapts it to later portions of the trajectory.
+\end{itemize}
+
+For validation or safety-critical calculations, use \code{acceleration=exact}.  The intended
+capability gate for representative adaptive workloads is at least 50\% fewer GEM calls, at least a
+factor-of-two reduction in query-stage worker solve time, and zero audit failures at relative
+tolerance $10^{-4}$.  Meeting this empirical gate does not turn Equation~\eqref{eq:loo-test} into a
+formal guarantee.
+
+\section{Relation to adaptive tabulation literature}
+
+The design follows the central in-situ adaptive-tabulation idea of Pope: retain information from
+previous expensive evaluations, retrieve locally when an accuracy criterion is satisfied, and
+otherwise evaluate exactly and grow the table~\cite{pope1997}.  Its equilibrium-specific motivation
+is consistent with on-demand acceleration of chemical equilibrium calculations described by Leal
+et al.~\cite{leal2020}.  The present implementation uses a deliberately simple inverse-distance
+predictor and empirical leave-one-out region test.  A possible later extension is to differentiate
+the fixed-assemblage equilibrium conditions and construct a mass-conservative first-order
+predictor with anisotropic regions of accuracy.  Such an extension is outside the algorithm
+documented here.
+
+\begin{thebibliography}{9}
+  \bibitem{pope1997}
+  S. B. Pope,
+  ``Computationally efficient implementation of combustion chemistry using in situ adaptive
+  tabulation,''
+  \emph{Combustion Theory and Modelling}, 1(1), 41--63, 1997.
+  \url{https://doi.org/10.1080/713665229}
+
+  \bibitem{leal2020}
+  A. M. M. Leal, S. Kyas, D. A. Kulik, and M. O. Saar,
+  ``Accelerating Reactive Transport Modeling: On-Demand Machine Learning Algorithm for Chemical
+  Equilibrium Calculations,''
+  \emph{Transport in Porous Media}, 133(2), 161--204, 2020.
+  \url{https://doi.org/10.1007/s11242-020-01412-1}
+\end{thebibliography}
+
+\appendix
+\section{Configuration summary}
+
+\begin{table}[htbp]
+  \centering
+  \caption{Adaptive controls and defaults.}
+  \begin{tabular}{lll}
+    \toprule
+    Parameter & Default & Meaning \\
+    \midrule
+    \code{acceleration} & \code{exact} & exact or adaptive evaluation \\
+    \code{cache\_max\_entries} & 10000 & exact records per worker \\
+    \code{surrogate\_neighbors} & 0 & $K$, with zero selecting Equation~\eqref{eq:auto-k} \\
+    \code{surrogate\_relative\_tolerance} & $10^{-4}$ & $\varepsilon_r$ \\
+    \code{surrogate\_absolute\_tolerances} & zero by output & $\varepsilon_{a,j}$ \\
+    \code{surrogate\_audit\_interval} & 100 & $M$, with zero disabling audits \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}

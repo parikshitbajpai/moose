@@ -4,6 +4,10 @@ This suite measures the cost and accuracy of the adaptive Thermochimica equilibr
 uses only databases distributed with the Chemical Reactions module and does not modify or persist
 worker caches.
 
+The mathematical definition, decision flowcharts, safeguards, and limitations of the implemented
+algorithm are documented in `thermochimica_adaptive_acceleration.tex`. Build the technical note with
+`latexmk -pdf thermochimica_adaptive_acceleration.tex` from this directory.
+
 The three input problems are:
 
 - `binary_smooth.i`: a single-phase Mo-Ru trajectory for interpolation and scaling studies;
