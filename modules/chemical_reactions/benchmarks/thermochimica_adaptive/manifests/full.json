@@ -1,0 +1,84 @@
+{
+  "repetitions": 7,
+  "prime": true,
+  "studies": {
+    "tolerance": {
+      "case": "binary_smooth",
+      "axis": "relative_tolerance",
+      "mesh": 10000,
+      "values": [0.01, 0.003, 0.001, 0.0003, 0.0001, 0.00003, 0.00001, 0.000003, 0.000001]
+    },
+    "mesh": {
+      "case": "binary_smooth",
+      "axis": "mesh",
+      "relative_tolerance": 0.0001,
+      "values": [100, 300, 1000, 3000, 10000, 30000, 100000]
+    },
+    "elements": {
+      "case": "multielement_fluoride",
+      "axis": "chemical_elements",
+      "mesh": 5000,
+      "relative_tolerance": 0.0001,
+      "values": [2, 5, 9, 13, 17, 22]
+    },
+    "neighbors": {
+      "case": "binary_smooth",
+      "axis": "neighbors",
+      "mesh": 10000,
+      "relative_tolerance": 0.0001,
+      "values": [2, 4, 8, "auto"]
+    },
+    "cache": {
+      "case": "binary_smooth",
+      "axis": "cache_capacity",
+      "mesh": 50000,
+      "relative_tolerance": 0.0001,
+      "values": [500, 2000, 10000, 50000]
+    },
+    "audit": {
+      "case": "binary_smooth",
+      "axis": "audit_interval",
+      "mesh": 10000,
+      "relative_tolerance": 0.0001,
+      "values": [0, 10, 100, 1000]
+    },
+    "warm_start": {
+      "case": "binary_smooth",
+      "axis": "warm_start",
+      "mesh": 10000,
+      "exact_only": true,
+      "values": ["none", "previous_solve", "previous_timestep", "nearest_cached"]
+    },
+    "boundary": {
+      "case": "binary_boundary",
+      "axis": "relative_tolerance",
+      "mesh": 10000,
+      "values": [0.01, 0.0001, 0.000001]
+    },
+    "parallel": {
+      "case": ["binary_smooth", "multielement_fluoride"],
+      "axis": "parallel",
+      "mesh": {"binary_smooth": 100000, "multielement_fluoride": 5000},
+      "chemical_elements": {"multielement_fluoride": 17},
+      "relative_tolerance": 0.0001,
+      "values": [
+        {"threads": 1, "ranks": 1},
+        {"threads": 2, "ranks": 1},
+        {"threads": 4, "ranks": 1},
+        {"threads": 1, "ranks": 2},
+        {"threads": 1, "ranks": 4}
+      ]
+    },
+    "output_cost": {
+      "case": ["multielement_fluoride", "multielement_heat_capacity"],
+      "axis": "output_set",
+      "mesh": 500,
+      "chemical_elements": {
+        "multielement_fluoride": 17,
+        "multielement_heat_capacity": 17
+      },
+      "relative_tolerance": 0.0001,
+      "values": ["default"]
+    }
+  }
+}

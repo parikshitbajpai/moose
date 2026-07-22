@@ -1,0 +1,20 @@
+{
+  "repetitions": 1,
+  "prime": false,
+  "studies": {
+    "smoke_smooth": {
+      "case": "binary_smooth",
+      "axis": "relative_tolerance",
+      "mesh": 200,
+      "values": [0.001],
+      "audit_interval": 10
+    },
+    "smoke_boundary": {
+      "case": "binary_boundary",
+      "axis": "relative_tolerance",
+      "mesh": 200,
+      "values": [0.001],
+      "audit_interval": 10
+    }
+  }
+}

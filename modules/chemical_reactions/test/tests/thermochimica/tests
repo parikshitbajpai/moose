@@ -424,6 +424,39 @@
     capabilities = 'thermochimica'
   []
 
+  [adaptive_benchmark_elemental_exact]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_smooth.i
+    cli_args = 'Mesh/gen/nx=200 ChemicalComposition/thermo/acceleration=exact Outputs/csv=false'
+    expect_out = 'states=200, batches=[0-9]+, exact_solves=200'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The Thermochimica benchmark shall evaluate every spatially varying elemental state exactly'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_benchmark_elemental_smoke]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_smooth.i
+    cli_args = 'Mesh/gen/nx=200 ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=10 Outputs/csv=false'
+    expect_out = 'states=200.*exact_solves=[1-9][0-9]?.*surrogate_hits=[1-9][0-9][0-9].*audit_failures=0'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive benchmark smoke problem shall reduce exact solves while auditing accepted elemental predictions'
+    capabilities = 'thermochimica'
+  []
+
+  [adaptive_benchmark_boundary_smoke]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_boundary.i
+    cli_args = 'Mesh/gen/nx=200 ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=10 Outputs/csv=false'
+    expect_out = 'states=200.*rejections=\(phase:[1-9][0-9]*,geometry:[0-9]+'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive benchmark phase-boundary problem shall reject mixed local phase assemblages'
+    capabilities = 'thermochimica'
+  []
+
   [nearest_cached_warm_start]
     type = RunApp
     input = MoRu.i

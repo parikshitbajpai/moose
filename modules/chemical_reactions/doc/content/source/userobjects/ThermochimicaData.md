@@ -22,6 +22,13 @@ This object is created internally by `ChemicalComposition` and is not intended t
 to the `[UserObjects]` block. Configure its evaluation location, outputs, batching, warm-start
 strategy, block restriction, and execution schedule through the action parameters.
 
+## Performance benchmarks
+
+The adaptive Thermochimica benchmark suite in
+`modules/chemical_reactions/benchmarks/thermochimica_adaptive` provides reproducible smooth,
+phase-boundary, chemical-dimension, mesh, cache, tolerance, and parallel scaling studies. It
+records exact/adaptive accuracy and worker telemetry separately from whole-application wall time.
+
 !syntax inputs /UserObjects/ThermochimicaData
 
 !syntax children /UserObjects/ThermochimicaData

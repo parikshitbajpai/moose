@@ -1,0 +1,45 @@
+{
+  "repetitions": 3,
+  "prime": true,
+  "studies": {
+    "tolerance": {
+      "case": "binary_smooth",
+      "axis": "relative_tolerance",
+      "mesh": 2000,
+      "values": [0.01, 0.001, 0.0001, 0.00001]
+    },
+    "mesh": {
+      "case": "binary_smooth",
+      "axis": "mesh",
+      "relative_tolerance": 0.0001,
+      "values": [100, 1000, 10000]
+    },
+    "elements": {
+      "case": "multielement_fluoride",
+      "axis": "chemical_elements",
+      "mesh": 500,
+      "relative_tolerance": 0.0001,
+      "values": [2, 5, 9, 13, 17, 22]
+    },
+    "neighbors": {
+      "case": "binary_smooth",
+      "axis": "neighbors",
+      "mesh": 2000,
+      "relative_tolerance": 0.0001,
+      "values": [2, 8, "auto"]
+    },
+    "warm_start": {
+      "case": "binary_smooth",
+      "axis": "warm_start",
+      "mesh": 2000,
+      "exact_only": true,
+      "values": ["none", "previous_solve", "previous_timestep", "nearest_cached"]
+    },
+    "boundary": {
+      "case": "binary_boundary",
+      "axis": "relative_tolerance",
+      "mesh": 2000,
+      "values": [0.0001]
+    }
+  }
+}
