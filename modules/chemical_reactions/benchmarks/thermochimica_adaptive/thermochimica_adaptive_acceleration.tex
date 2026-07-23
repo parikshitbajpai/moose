@@ -25,9 +25,10 @@
 Thermochimica computes a thermodynamic equilibrium by a Gibbs energy minimization (GEM).  This
 work can dominate a multiphysics calculation when the equilibrium map is evaluated at every mesh
 entity and time step.  The MOOSE adaptive capability reduces the number of GEM calls by caching
-exact states and using a local, phase-aware inverse-distance surrogate.  A prediction is published
-only after phase, geometry, leave-one-out error, and physical-invariant checks pass.  Otherwise,
-the exact Thermochimica calculation is performed.  Periodic exact audits measure the empirical
+exact states and using either a local, phase-aware inverse-distance surrogate or a
+fixed-assemblage KKT sensitivity predictor with an ellipsoid of accuracy.  A prediction is
+published only after the model-specific phase, geometry, error, and physical-invariant checks
+pass.  Otherwise, the exact Thermochimica calculation is performed.  Periodic exact audits measure the empirical
 error of accepted predictions and always publish the exact result.  This note defines the
 implemented algorithm mathematically, documents its control flow and counters, and states its
 limitations.  Exact mode remains the default.
@@ -261,6 +262,140 @@ neighbor values for that output.  The complete prediction is rejected if any val
 if an amount or pressure is negative, or if a fraction is less than zero or greater than one.
 Invalid values are not clamped.
 
+\section{Fixed-assemblage KKT predictor}
+
+Setting \code{surrogate\_model=kkt\_linear} replaces the local inverse-distance mapping with a
+first-order mapping associated with one exact cache record.  The phase assemblage is held fixed
+while its derivative is constructed.  For the constituents of active solution phases, active
+pure phases, and elemental Lagrange multipliers, define
+\begin{equation}
+  \boldsymbol{w}
+  =\left[\log\boldsymbol{n}_s,\log\boldsymbol{n}_p,\boldsymbol{\lambda}\right]^T
+\end{equation}
+and the residual
+\begin{equation}
+  \boldsymbol{R}(\boldsymbol{w};T,P,\boldsymbol{b})=
+  \begin{bmatrix}
+    \boldsymbol{\mu}_s-\mathbf{A}_s^T\boldsymbol{\lambda}\\
+    \boldsymbol{g}_p-\mathbf{A}_p^T\boldsymbol{\lambda}\\
+    \mathbf{A}_s\boldsymbol{n}_s+\mathbf{A}_p\boldsymbol{n}_p-\boldsymbol{b}
+  \end{bmatrix}=\boldsymbol{0}.
+  \label{eq:kkt-residual}
+\end{equation}
+Particle-per-formula factors used by Thermochimica are included in the corresponding rows of
+$\mathbf{A}_s$.  Logarithmic amounts preserve positivity during numerical perturbations.
+
+After an exact GEM solve, the implementation assembles
+\begin{equation}
+  \mathbf{K}=\frac{\partial\boldsymbol{R}}{\partial\boldsymbol{w}},
+  \qquad
+  \mathbf{C}=\frac{\partial\boldsymbol{R}}{\partial(T,P,\boldsymbol{b})}
+\end{equation}
+and solves all sensitivity right-hand sides together:
+\begin{equation}
+  \mathbf{K}\frac{\partial\boldsymbol{w}}
+  {\partial(T,P,\boldsymbol{b})}=-\mathbf{C}.
+  \label{eq:kkt-sensitivity}
+\end{equation}
+The stoichiometric and elemental-balance blocks are analytic.  The phase-model-dependent
+chemical-potential block and explicit temperature and pressure derivatives use centered residual
+differences at two step sizes without additional GEM iterations.  The unperturbed nonlinear
+residual is checked against the solver tolerances before factorization.  LAPACK estimates both raw
+and equilibrated reciprocal condition numbers, and the implementation records the linear residual
+and componentwise backward error.  A singular, non-finite, poorly conditioned, or
+near-disappearing state is not cached as a sensitivity record.
+
+Thermochimica stores equilibrium and subminimization data in module state.  Sensitivity
+construction therefore captures the converged state before any residual perturbation.  Trial
+states evaluate active phases only; restoration copies the captured state rather than invoking a
+full chemical-potential calculation, which would subminimize inactive phases and change the seed
+used by a later GEM solve.  A versioned regime token records phase instances, model identifiers,
+miscibility flags, and active constituent indices.  Retrieval is fail-closed for phase models that
+have not passed the exact-GEM finite-difference qualification suite.
+
+\subsection{Nonredundant coordinates}
+
+Let $N=\sum_i b_i$ and $\boldsymbol{x}=\boldsymbol{b}/N$.  Let
+$\mathbf{H}\in\R^{n\times(n-1)}$ be a Helmert basis satisfying
+\begin{equation}
+  \mathbf{H}^T\boldsymbol{1}=\boldsymbol{0},\qquad
+  \mathbf{H}^T\mathbf{H}=\mathbf{I}.
+\end{equation}
+The KKT cache coordinate is
+\begin{equation}
+  \boldsymbol{q}=\left[
+    \log(T/298.15\,{\rm K}),\log(P/1\,{\rm bar}),
+    \mathbf{H}^T\boldsymbol{x},\log N
+  \right]^T.
+  \label{eq:kkt-coordinate}
+\end{equation}
+For fraction inputs the final coordinate is fixed at zero.  This linear simplex basis remains
+defined when an element fraction is zero and avoids the singular sum-to-one direction.  The chain
+rule gives
+\begin{equation}
+  \frac{\partial\boldsymbol{b}}{\partial q_k}=N\mathbf{H}_{:k},
+  \qquad
+  \frac{\partial\boldsymbol{b}}{\partial\log N}=\boldsymbol{b}.
+\end{equation}
+
+The requested-output Jacobian $\mathbf{J}_r=\partial\boldsymbol{y}/\partial\boldsymbol{q}$ is
+obtained by applying small positive and negative input displacements to Equation~\eqref{eq:kkt-sensitivity},
+re-evaluating Thermochimica's output getters without GEM, and restoring the exact state.  Extensive
+outputs are divided by their perturbed total amount before storing the derivative.
+
+\subsection{Ellipsoid metric and retrieval}
+
+For output scales
+\begin{equation}
+  s_j=\max\left(\varepsilon_{a,j}+\varepsilon_r\abs{y_{r,j}},
+  10^{-14}\max(1,\abs{y_{r,j}})\right),
+  \qquad \mathbf{W}=\operatorname{diag}(s_j^{-1}),
+\end{equation}
+the initial full-rank metric is
+\begin{equation}
+  \mathbf{M}_r=\mathbf{J}_r^T\mathbf{W}^T\mathbf{W}\mathbf{J}_r+\mathbf{I}.
+  \label{eq:eoa-metric}
+\end{equation}
+A same-signature query is eligible when
+\begin{equation}
+  \delta\boldsymbol{q}^T\mathbf{M}_r\delta\boldsymbol{q}\leq 1,
+  \qquad \delta\boldsymbol{q}=\boldsymbol{q}-\boldsymbol{q}_r,
+\end{equation}
+and is predicted by
+\begin{equation}
+  \widehat{\boldsymbol{y}}=\boldsymbol{y}_r+\mathbf{J}_r\delta\boldsymbol{q}.
+  \label{eq:kkt-predictor}
+\end{equation}
+An exact same-phase query whose prediction satisfies every configured tolerance grows the
+ellipsoid by a rank-one metric update that places the validated displacement on its boundary.  An
+audit failure applies the converse rank-one update so that the failed displacement lies outside
+the ellipsoid.  The exact audited value is always published and cached.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=7mm and 11mm,
+    box/.style={draw,rounded corners,align=center,minimum width=31mm,minimum height=8mm},
+    decision/.style={draw,diamond,aspect=2,align=center,inner sep=1pt},
+    flow/.style={-{Latex[length=2mm]}}]
+    \node[box] (exact) {exact GEM state};
+    \node[box,right=of exact] (kkt) {assemble and factor\\fixed-assemblage KKT};
+    \node[decision,right=of kkt] (valid) {qualified?};
+    \node[box,below=of valid] (record) {store $\mathbf{J}_r,\mathbf{M}_r$};
+    \node[decision,left=of record] (inside) {query inside EOA\\and same regime?};
+    \node[box,left=of inside] (predict) {linear prediction\\and invariant checks};
+    \node[box,below=of inside] (fallback) {exact fallback};
+    \draw[flow] (exact)--(kkt);
+    \draw[flow] (kkt)--(valid);
+    \draw[flow] (valid)--node[right]{yes}(record);
+    \draw[flow] (record)--(inside);
+    \draw[flow] (inside)--node[above]{yes}(predict);
+    \draw[flow] (inside)--node[right]{no}(fallback);
+    \draw[flow] (valid.east) -- ++(7mm,0) |- node[pos=0.25,right]{no} (fallback.east);
+  \end{tikzpicture}
+  \caption{Construction and use of a KKT-linear cache record.}
+  \label{fig:kkt-flow}
+\end{figure}
+
 \section{Auditing and exact fallback}
 
 Let $M$ be \code{surrogate\_audit\_interval}.  Accepted approximate predictions are numbered
@@ -423,6 +558,65 @@ $O(L(d+m))$.  Cache storage is approximately $O(N(d+m+r))$, where $r$ denotes op
 reinitialization-state storage.  These costs are profitable only when they are appreciably smaller
 than the avoided GEM calculations; the benchmark suite measures that crossover directly.
 
+\section{Algorithm-comparison metrics}
+
+The benchmark suite compares exact GEM, \code{local\_idw}, and \code{kkt\_linear} on a balanced
+set of problems.  For output $j$ on problem $p$, it reports the normalized error
+\begin{equation}
+  \eta_{p,j} =
+  \frac{
+    \max_i \lvert \widehat y_{p,i,j} - y_{p,i,j} \rvert
+  }{
+    \epsilon_{\mathrm{abs},j}
+    + \epsilon_{\mathrm{rel}}
+      \max_i\left(\lvert y_{p,i,j}\rvert,
+                  \lvert \widehat y_{p,i,j}\rvert\right)
+  },
+  \qquad
+  \eta_p = \max_j \eta_{p,j}.
+  \label{eq:benchmark-normalized-error}
+\end{equation}
+A result is considered valid when $\eta_p\leq 1$, no audit fails, and no state-restoration
+failure is reported.  Invalid results remain visible in work--precision diagrams but receive
+infinite cost in the profiles below.
+
+For valid algorithm $a$, let $t_{p,a}$ be its median query-stage time and define its performance
+ratio relative to the fastest valid algorithm on the same problem,
+\begin{equation}
+  r_{p,a} = \frac{t_{p,a}}{\min_{a'\in\mathcal V_p}t_{p,a'}}.
+\end{equation}
+The Dolan--Mor\'e performance profile is
+\begin{equation}
+  \rho_a(\tau) =
+  \frac{1}{\lvert\mathcal P\rvert}
+  \left\lvert
+    \left\{p\in\mathcal P:r_{p,a}\leq\tau\right\}
+  \right\rvert .
+  \label{eq:performance-profile}
+\end{equation}
+Thus $\rho_a(1)$ is the fraction of problems on which $a$ is fastest, while the large-$\tau$
+limit is the fraction solved within tolerance.  Separate worker-time and wall-time profiles
+distinguish equilibrium cost from application overhead.
+
+The data profile replaces time with the normalized exact-solve budget
+\begin{equation}
+  \beta_{p,a} =
+  \frac{N^{\mathrm{GEM}}_{p,a}}{N^{\mathrm{state}}_p},
+  \qquad
+  d_a(\beta) =
+  \frac{1}{\lvert\mathcal P\rvert}
+  \left\lvert
+    \left\{p\in\mathcal P:\beta_{p,a}\leq\beta\right\}
+  \right\rvert .
+  \label{eq:data-profile}
+\end{equation}
+This shows how rapidly each method covers the problem set as the permitted GEM calls per state
+increase.  Work--precision plots retain the individual $(\eta_p,t_{p,a})$ points, heat maps
+summarize speedup by chemistry and model, stage-learning plots show cache growth and exact-call
+fraction, and phase-trajectory plots place surrogate error directly against the exact phase
+fractions.  Together these views avoid declaring a method superior from timing alone when it
+does not satisfy the requested thermodynamic accuracy.
+
 \section{Guarantees and limitations}
 
 The safeguards provide empirical error control, not a mathematical error bound for every unaudited
@@ -432,10 +626,9 @@ query.  In particular:
   represented by those exact records.
   \item Equal neighbor signatures reduce phase-boundary risk, but they do not prove that the query
   has that assemblage.  The axis-aligned bounding box is also not a convex-hull test.
-  \item Temperature, pressure, and composition coordinates use fixed reference scales.  No local
-  sensitivity metric or anisotropic region of accuracy is currently learned.
-  \item The $n$ normalized elemental fractions sum to one, so one composition coordinate is
-  redundant.  It is retained to keep the mapping to configured elements simple and deterministic.
+  \item The \code{local\_idw} coordinates use fixed reference scales and retain the redundant
+  sum-to-one composition coordinate.  The \code{kkt\_linear} model removes that direction and
+  learns an anisotropic metric, but only for a fixed phase assemblage.
   \item Positive interpolation weights preserve each neighbor output range but do not enforce
   coupled thermodynamic identities or elemental conservation between different output fields.
   \item Auditing is deterministic within a worker, but worker-local cache histories mean parallel
@@ -456,11 +649,13 @@ The design follows the central in-situ adaptive-tabulation idea of Pope: retain 
 previous expensive evaluations, retrieve locally when an accuracy criterion is satisfied, and
 otherwise evaluate exactly and grow the table~\cite{pope1997}.  Its equilibrium-specific motivation
 is consistent with on-demand acceleration of chemical equilibrium calculations described by Leal
-et al.~\cite{leal2020}.  The present implementation uses a deliberately simple inverse-distance
-predictor and empirical leave-one-out region test.  A possible later extension is to differentiate
-the fixed-assemblage equilibrium conditions and construct a mass-conservative first-order
-predictor with anisotropic regions of accuracy.  Such an extension is outside the algorithm
-documented here.
+et al.~\cite{leal2020}.  The implementation offers both a deliberately simple inverse-distance
+predictor with an empirical leave-one-out test and the fixed-assemblage mapping gradient in
+Equation~\eqref{eq:kkt-predictor}.  Its ellipsoid follows Pope's region-of-accuracy construction,
+while exact audits and phase signatures provide the equilibrium-specific active-set safeguards.
+For KKT retrieval, the implementation augments the phase signature with the indices of solution
+constituents above Thermochimica's active mole-fraction threshold.  The two nearest records must
+agree on this combined signature before any ellipsoid is considered.
 
 \begin{thebibliography}{9}
   \bibitem{pope1997}
@@ -489,6 +684,7 @@ documented here.
     Parameter & Default & Meaning \\
     \midrule
     \code{acceleration} & \code{exact} & exact or adaptive evaluation \\
+    \code{surrogate\_model} & \code{local\_idw} & inverse-distance or KKT-linear mapping \\
     \code{cache\_max\_entries} & 10000 & exact records per worker \\
     \code{surrogate\_neighbors} & 0 & $K$, with zero selecting Equation~\eqref{eq:auto-k} \\
     \code{surrogate\_relative\_tolerance} & $10^{-4}$ & $\varepsilon_r$ \\
