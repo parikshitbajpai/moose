@@ -15,11 +15,19 @@
       "values": [100, 1000, 10000]
     },
     "elements": {
-      "case": "multielement_fluoride",
+      "case": "fluoride_dimension_trace",
       "axis": "chemical_elements",
       "mesh": 500,
       "relative_tolerance": 0.0001,
       "values": [2, 5, 9, 13, 17, 22]
+    },
+    "lif_qualification": {
+      "case": ["lif_excess_f", "lif_low_temperature", "flibe_msfl"],
+      "axis": "surrogate_model",
+      "mesh": 200,
+      "relative_tolerance": 0.0001,
+      "audit_interval": 1,
+      "values": ["local_idw", "kkt_linear"]
     },
     "neighbors": {
       "case": "binary_smooth",
@@ -27,6 +35,33 @@
       "mesh": 2000,
       "relative_tolerance": 0.0001,
       "values": [2, 8, "auto"]
+    },
+    "surrogate_model": {
+      "case": "binary_smooth",
+      "axis": "surrogate_model",
+      "mesh": 2000,
+      "relative_tolerance": 0.0001,
+      "values": ["local_idw", "kkt_linear"]
+    },
+    "algorithm_comparison": {
+      "case": [
+        "binary_smooth",
+        "binary_boundary",
+        "lif_excess_f",
+        "lif_low_temperature",
+        "flibe_msfl"
+      ],
+      "axis": "relative_tolerance",
+      "mesh": {
+        "binary_smooth": 500,
+        "binary_boundary": 500,
+        "lif_excess_f": 100,
+        "lif_low_temperature": 100,
+        "flibe_msfl": 50
+      },
+      "values": [0.01, 0.0001],
+      "audit_interval": 10,
+      "surrogate_models": ["local_idw", "kkt_linear"]
     },
     "warm_start": {
       "case": "binary_smooth",

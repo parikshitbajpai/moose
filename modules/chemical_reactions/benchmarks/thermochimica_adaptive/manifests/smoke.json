@@ -15,6 +15,22 @@
       "mesh": 200,
       "values": [0.001],
       "audit_interval": 10
+    },
+    "smoke_lif_state_isolation": {
+      "case": "lif_excess_f",
+      "axis": "surrogate_model",
+      "mesh": 30,
+      "relative_tolerance": 0.001,
+      "audit_interval": 1,
+      "values": ["kkt_linear"]
+    },
+    "algorithm_comparison": {
+      "case": ["binary_smooth", "binary_boundary"],
+      "axis": "relative_tolerance",
+      "mesh": 100,
+      "values": [0.001],
+      "audit_interval": 10,
+      "surrogate_models": ["local_idw", "kkt_linear"]
     }
   }
 }

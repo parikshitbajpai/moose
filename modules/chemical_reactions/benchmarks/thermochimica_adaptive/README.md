@@ -8,12 +8,26 @@ The mathematical definition, decision flowcharts, safeguards, and limitations of
 algorithm are documented in `thermochimica_adaptive_acceleration.tex`. Build the technical note with
 `latexmk -pdf thermochimica_adaptive_acceleration.tex` from this directory.
 
-The three input problems are:
+Set `ChemicalComposition/thermo/surrogate_model=kkt_linear` to benchmark the fixed-assemblage
+sensitivity predictor and its ellipsoid metric. The driver records sensitivity construction time,
+factorization failures, linear retrieves, ellipsoid updates, and Jacobian/metric storage alongside
+the original `local_idw` telemetry.
+
+The core and qualification input problems are:
 
 - `binary_smooth.i`: a single-phase Mo-Ru trajectory for interpolation and scaling studies;
 - `binary_boundary.i`: a wider Mo-Ru trajectory crossing the BCC/HCP phase boundary; and
-- `multielement_fluoride.i`: a depletion-like fluoride trajectory configurable from 2 to 22
-  chemical elements.
+- `multielement_fluoride.i`: the representative MSRE-derived 17/22-element chemistry;
+- `fluoride_dimension_trace.i`: a fixed LiF carrier with trace additions for controlled dimension
+  scaling;
+- `lif_excess_f.i`: the historical gas-dominant F/Li=2.26 state-contamination regression;
+- `lif_low_temperature.i`: near-stoichiometric binary Li-F with inactive MSFL; and
+- `flibe_msfl.i`: a charge-balanced Li-Be-F carrier with active `SUBQ` MSFL.
+
+The MSTDB database represents near-stoichiometric binary LiF with pure condensed phases, so active
+MSFL qualification uses FLiBe rather than labeling a non-MSFL binary state as molten salt. The
+current nested MSRE element subsets are not used as a pure dimension study because removing cations
+while retaining the complete fluorine inventory changes both stoichiometry and phase behavior.
 
 `multielement_heat_capacity.i` is an include-based variant used only by the optional full-tier
 `output_cost` study. It isolates the additional equilibria required by heat-capacity output from
@@ -49,6 +63,18 @@ the publication/performance tier. The full tier can take hours. Select one study
 `--study tolerance`, and use `--repetitions` or `--no-prime` for exploratory runs. MPI runs use
 `mpiexec` by default; select a different launcher with `--mpiexec`.
 
+Use `--study algorithm_comparison` for the balanced exact, `local_idw`, and `kkt_linear` matrix
+used by the optimization-style visualizations. Each surrogate sees the same cases, tolerances,
+mesh sizes, warm start, and repetition count. The quick matrix uses reduced Li-F/FLiBe meshes so
+it can be run independently of the expensive chemical-dimension study:
+
+```bash
+conda run -n moose python3 benchmark.py run \
+  --tier quick --study algorithm_comparison \
+  --exe ../../chemical_reactions-opt \
+  --output /tmp/thermochimica-algorithms
+```
+
 The grids and repetition counts are stored in `manifests/smoke.json`, `quick.json`, and `full.json`.
 Changing a study does not require modifying the driver.
 
@@ -63,6 +89,28 @@ Each run produces:
 - `metadata.json`: revision, platform, environment, package, and command information;
 - `logs/` and `raw/`: application output and sampled state CSV files; and
 - `figures/`: PNG and SVG scaling, accuracy, rejection, and cache plots.
+
+Measured repetitions are written atomically to `runs.csv`, `accuracy.csv`, `failures.csv`, and
+`summary.csv` as soon as they finish. Consequently, a second terminal can regenerate partial plots
+while a long study is still running:
+
+```bash
+conda run -n moose python3 benchmark.py plot --input /tmp/thermochimica-algorithms
+```
+
+The balanced comparison produces:
+
+- `algorithm_performance_profiles`: Dolan-More-style worker and wall-time profiles;
+- `algorithm_data_profile`: fraction of valid problems reached within an exact-GEM-call budget;
+- `algorithm_work_precision`: query time and speedup versus maximum normalized error;
+- `algorithm_speedup_heatmap`: median valid speedup by problem and surrogate;
+- `algorithm_stage_learning`: exact-call fraction and cache growth from initial to query stage; and
+- `phase_boundary_trajectory`: exact BCC/HCP fractions and surrogate error along the boundary path.
+
+The profiles are correctness-gated. An adaptive result is valid only when its sampled maximum
+error is within the requested relative tolerance and both its audit-failure and state-restoration
+failure counts are zero. Invalid results remain in the work-precision plot but receive infinite
+cost in performance and data profiles. Exact GEM is always the reference valid algorithm.
 
 `worker_solve_time` isolates the Thermochimica worker, while `wall_time` includes process startup,
 mesh setup, cache training, query evaluation, sampling, and output. Capability-gate fields use the

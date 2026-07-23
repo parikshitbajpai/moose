@@ -30,6 +30,10 @@ CASE_FILES = {
     "binary_boundary": CASES / "binary_boundary.i",
     "multielement_fluoride": CASES / "multielement_fluoride.i",
     "multielement_heat_capacity": CASES / "multielement_heat_capacity.i",
+    "fluoride_dimension_trace": CASES / "fluoride_dimension_trace.i",
+    "lif_excess_f": CASES / "lif_excess_f.i",
+    "lif_low_temperature": CASES / "lif_low_temperature.i",
+    "flibe_msfl": CASES / "flibe_msfl.i",
 }
 
 CASE_OUTPUTS = {
@@ -66,6 +70,18 @@ CASE_OUTPUTS = {
         "system_gibbs",
         "system_heat_capacity",
     ],
+    "fluoride_dimension_trace": [
+        "msfl_amount", "msfl_fraction", "gas_amount", "gas_fraction", "f_potential", "system_gibbs"
+    ],
+    "lif_excess_f": [
+        "msfl_amount", "msfl_fraction", "gas_amount", "gas_fraction", "f_potential", "system_gibbs"
+    ],
+    "lif_low_temperature": [
+        "msfl_amount", "msfl_fraction", "gas_amount", "gas_fraction", "f_potential", "system_gibbs"
+    ],
+    "flibe_msfl": [
+        "msfl_amount", "msfl_fraction", "gas_amount", "gas_fraction", "f_potential", "system_gibbs"
+    ],
 }
 
 ELEMENT_SETS = {
@@ -91,6 +107,17 @@ INT_FIELDS = [
     "cold_retries",
     "cache_entries",
     "cache_saturated",
+    "sensitivity_successes",
+    "sensitivity_failures",
+    "sensitivity_condition_rejections",
+    "sensitivity_residual_rejections",
+    "unsupported_model_rejections",
+    "state_restore_failures",
+    "complementarity_rejections",
+    "linear_retrieves",
+    "ellipsoid_growths",
+    "ellipsoid_shrinks",
+    "sensitivity_bytes",
 ]
 REJECTION_FIELDS = [
     "phase_rejections",
@@ -99,7 +126,7 @@ REJECTION_FIELDS = [
     "invariant_rejections",
     "invalid_state_rejections",
 ]
-TIME_FIELDS = ["worker_solve_time", "packing_time", "ipc_time"]
+TIME_FIELDS = ["worker_solve_time", "sensitivity_time", "packing_time", "ipc_time"]
 
 RUN_FIELDS = [
     "run_id",
@@ -107,6 +134,7 @@ RUN_FIELDS = [
     "study",
     "case",
     "mode",
+    "surrogate_model",
     "repetition",
     "stage_index",
     "stage",
@@ -140,9 +168,13 @@ ACCURACY_FIELDS = [
     "tier",
     "study",
     "case",
+    "surrogate_model",
     "repetition",
     "axis",
     "axis_value",
+    "mesh_elements",
+    "chemical_elements",
+    "relative_tolerance",
     "output",
     "samples",
     "max_absolute_error",
@@ -151,6 +183,8 @@ ACCURACY_FIELDS = [
     "max_relative_error",
     "p95_relative_error",
     "relative_scale_floor",
+    "max_normalized_error",
+    "p95_normalized_error",
 ]
 
 FAILURE_FIELDS = [
@@ -279,15 +313,25 @@ def compare_samples(
         absolute = [abs(lhs - rhs) for lhs, rhs in zip(expected, actual)]
         scale_floor = 1e-12 * max(max((abs(value) for value in expected), default=0.0), 1.0)
         relative = [error / max(abs(value), scale_floor) for error, value in zip(absolute, expected)]
+        normalized = [
+            value / config["relative_tolerance"]
+            if config["relative_tolerance"] > 0.0
+            else math.inf
+            for value in relative
+        ]
         records.append(
             {
                 "run_id": run_id,
                 "tier": tier,
                 "study": config["study"],
                 "case": config["case"],
+                "surrogate_model": config["surrogate_model"],
                 "repetition": repetition,
                 "axis": config["axis"],
                 "axis_value": config["axis_value"],
+                "mesh_elements": config["mesh"],
+                "chemical_elements": config["chemical_elements"],
+                "relative_tolerance": config["relative_tolerance"],
                 "output": output,
                 "samples": len(expected),
                 "max_absolute_error": max(absolute, default=0.0),
@@ -296,6 +340,8 @@ def compare_samples(
                 "max_relative_error": max(relative, default=0.0),
                 "p95_relative_error": percentile(relative, 0.95),
                 "relative_scale_floor": scale_floor,
+                "max_normalized_error": max(normalized, default=0.0),
+                "p95_normalized_error": percentile(normalized, 0.95),
             }
         )
     return records
@@ -303,55 +349,61 @@ def compare_samples(
 
 def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
     cases = study["case"] if isinstance(study["case"], list) else [study["case"]]
+    models = study.get("surrogate_models", [study.get("surrogate_model", "local_idw")])
     configs = []
     for case in cases:
         for value in study["values"]:
-            mesh = study.get("mesh", 200)
-            if isinstance(mesh, dict):
-                mesh = mesh[case]
-            config = {
-                "study": name,
-                "case": case,
-                "axis": study["axis"],
-                "axis_value": value,
-                "mesh": int(mesh),
-                "chemical_elements": 22 if case.startswith("multielement_") else 2,
-                "relative_tolerance": float(study.get("relative_tolerance", 1e-4)),
-                "neighbors": 0,
-                "cache_capacity": 10000,
-                "audit_interval": int(study.get("audit_interval", 100)),
-                "warm_start": "previous_solve",
-                "threads": 1,
-                "ranks": 1,
-                "exact_only": bool(study.get("exact_only", False)),
-            }
-            configured_elements = study.get("chemical_elements")
-            if isinstance(configured_elements, dict) and case in configured_elements:
-                config["chemical_elements"] = int(configured_elements[case])
-            axis = study["axis"]
-            if axis == "relative_tolerance":
-                config["relative_tolerance"] = float(value)
-            elif axis == "mesh":
-                config["mesh"] = int(value)
-            elif axis == "chemical_elements":
-                config["chemical_elements"] = int(value)
-            elif axis == "neighbors":
-                config["neighbors"] = 0 if value == "auto" else int(value)
-            elif axis == "cache_capacity":
-                config["cache_capacity"] = int(value)
-            elif axis == "audit_interval":
-                config["audit_interval"] = int(value)
-            elif axis == "warm_start":
-                config["warm_start"] = str(value)
-            elif axis == "parallel":
-                config["threads"] = int(value["threads"])
-                config["ranks"] = int(value["ranks"])
-                config["axis_value"] = f"t{config['threads']}_r{config['ranks']}"
-            elif axis == "output_set":
-                config["axis_value"] = case
-            else:
-                raise ValueError(f"Unsupported study axis '{axis}'")
-            configs.append(config)
+            selected_models = [value] if study["axis"] == "surrogate_model" else models
+            for model in selected_models:
+                mesh = study.get("mesh", 200)
+                if isinstance(mesh, dict):
+                    mesh = mesh[case]
+                config = {
+                    "study": name,
+                    "case": case,
+                    "axis": study["axis"],
+                    "axis_value": value,
+                    "mesh": int(mesh),
+                    "chemical_elements": 22 if case.startswith("multielement_") or case == "fluoride_dimension_trace" else 2,
+                    "relative_tolerance": float(study.get("relative_tolerance", 1e-4)),
+                    "neighbors": 0,
+                    "cache_capacity": 10000,
+                    "audit_interval": int(study.get("audit_interval", 100)),
+                    "warm_start": "previous_solve",
+                    "surrogate_model": str(model),
+                    "threads": 1,
+                    "ranks": 1,
+                    "exact_only": bool(study.get("exact_only", False)),
+                }
+                configured_elements = study.get("chemical_elements")
+                if isinstance(configured_elements, dict) and case in configured_elements:
+                    config["chemical_elements"] = int(configured_elements[case])
+                axis = study["axis"]
+                if axis == "relative_tolerance":
+                    config["relative_tolerance"] = float(value)
+                elif axis == "mesh":
+                    config["mesh"] = int(value)
+                elif axis == "chemical_elements":
+                    config["chemical_elements"] = int(value)
+                elif axis == "neighbors":
+                    config["neighbors"] = 0 if value == "auto" else int(value)
+                elif axis == "cache_capacity":
+                    config["cache_capacity"] = int(value)
+                elif axis == "audit_interval":
+                    config["audit_interval"] = int(value)
+                elif axis == "warm_start":
+                    config["warm_start"] = str(value)
+                elif axis == "surrogate_model":
+                    config["surrogate_model"] = str(value)
+                elif axis == "parallel":
+                    config["threads"] = int(value["threads"])
+                    config["ranks"] = int(value["ranks"])
+                    config["axis_value"] = f"t{config['threads']}_r{config['ranks']}"
+                elif axis == "output_set":
+                    config["axis_value"] = case
+                else:
+                    raise ValueError(f"Unsupported study axis '{axis}'")
+                configs.append(config)
     return configs
 
 
@@ -368,6 +420,7 @@ def command_for(
         str(CASE_FILES[config["case"]]),
         f"Mesh/gen/nx={config['mesh']}",
         f"ChemicalComposition/thermo/acceleration={mode}",
+        f"ChemicalComposition/thermo/surrogate_model={config['surrogate_model']}",
         f"ChemicalComposition/thermo/warm_start={config['warm_start']}",
         f"ChemicalComposition/thermo/surrogate_relative_tolerance={config['relative_tolerance']}",
         f"ChemicalComposition/thermo/surrogate_neighbors={config['neighbors']}",
@@ -376,7 +429,7 @@ def command_for(
         f"Outputs/file_base={file_base}",
         f"--n-threads={config['threads']}",
     ]
-    if config["case"].startswith("multielement_"):
+    if config["case"].startswith("multielement_") or config["case"] == "fluoride_dimension_trace":
         command.append(
             f"ChemicalComposition/thermo/elements={ELEMENT_SETS[config['chemical_elements']]}"
         )
@@ -393,8 +446,11 @@ def run_process(command: list[str], log_path: Path) -> tuple[float, float | None
         psutil = None
 
     start = time.perf_counter()
+    environment = os.environ.copy()
+    if platform.system() == "Darwin":
+        environment.setdefault("FI_PROVIDER", "tcp")
     with log_path.open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=environment)
         if psutil:
             monitored = psutil.Process(process.pid)
             peak_rss = 0
@@ -402,8 +458,9 @@ def run_process(command: list[str], log_path: Path) -> tuple[float, float | None
                 try:
                     processes = [monitored] + monitored.children(recursive=True)
                     peak_rss = max(peak_rss, sum(item.memory_info().rss for item in processes))
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                    peak_rss = None
+                    break
                 time.sleep(0.01)
         return_code = process.wait()
     wall_time = time.perf_counter() - start
@@ -432,7 +489,10 @@ def execute_once(
     commands: list[list[str]],
     prime: bool = False,
 ) -> dict[str, Any]:
-    identity = f"{config['study']}-{config['case']}-{mode}-{slug(config['axis_value'])}-r{repetition}"
+    identity = (
+        f"{config['study']}-{config['case']}-{mode}-{config['surrogate_model']}-"
+        f"{slug(config['axis_value'])}-r{repetition}"
+    )
     if prime:
         identity += "-prime"
     file_base = output / "raw" / identity
@@ -483,6 +543,7 @@ def stage_rows(
             "study": config["study"],
             "case": config["case"],
             "mode": mode,
+            "surrogate_model": config["surrogate_model"],
             "repetition": repetition,
             "stage_index": index,
             "stage": stage,
@@ -529,10 +590,12 @@ def stage_rows(
 
 
 def write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as stream:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+    temporary.replace(path)
 
 
 def aggregate_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -554,26 +617,23 @@ def aggregate_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "warm_start",
         "threads",
         "ranks",
+        "surrogate_model",
     ]
     for row in query_rows:
         groups.setdefault(tuple(row[key] for key in keys), []).append(row)
-    numeric = [
+    numeric = list(dict.fromkeys([
         "wall_time",
         "peak_rss_bytes",
-        "exact_solves",
-        "gem_iterations",
-        "exact_reuse_hits",
-        "surrogate_hits",
+        *INT_FIELDS,
         *REJECTION_FIELDS,
-        "audits",
-        "audit_failures",
-        "cache_entries",
-        "cache_saturated",
-        "worker_solve_time",
+        *TIME_FIELDS,
+        "baseline_wall_time",
+        "baseline_worker_solve_time",
+        "baseline_exact_solves",
         "wall_speedup",
         "worker_speedup",
         "exact_call_reduction",
-    ]
+    ]))
     summary = []
     for group_key, group in groups.items():
         record = dict(zip(keys, group_key))
@@ -590,6 +650,21 @@ def aggregate_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         record["meets_capability_gate"] = int(bool(gate_values) and all(gate_values))
         summary.append(record)
     return summary
+
+
+def checkpoint_results(
+    output: Path,
+    rows: list[dict[str, Any]],
+    accuracy: list[dict[str, Any]],
+    failures: list[dict[str, Any]],
+) -> None:
+    """Atomically publish completed repetitions so they can be plotted during a long run."""
+    write_csv(output / "runs.csv", RUN_FIELDS, rows)
+    write_csv(output / "accuracy.csv", ACCURACY_FIELDS, accuracy)
+    write_csv(output / "failures.csv", FAILURE_FIELDS, failures)
+    summary = aggregate_runs(rows)
+    summary_fields = list(summary[0]) if summary else ["tier", "study", "case", "mode"]
+    write_csv(output / "summary.csv", summary_fields, summary)
 
 
 def metadata(executable: Path, tier: str, commands: list[list[str]]) -> dict[str, Any]:
@@ -685,6 +760,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                         rows.extend(
                             stage_rows(run_id, args.tier, config, "exact", repetition, result, None)
                         )
+                        checkpoint_results(output, rows, accuracy, failures)
                 if config["exact_only"]:
                     continue
                 if do_prime:
@@ -726,6 +802,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                             result["sample"],
                         )
                     )
+                    checkpoint_results(output, rows, accuracy, failures)
             except RuntimeError as error:
                 if args.fail_fast:
                     raise
@@ -743,13 +820,9 @@ def run_suite(args: argparse.Namespace) -> Path:
                         "error": str(error),
                     }
                 )
+                checkpoint_results(output, rows, accuracy, failures)
 
-    write_csv(output / "runs.csv", RUN_FIELDS, rows)
-    write_csv(output / "accuracy.csv", ACCURACY_FIELDS, accuracy)
-    write_csv(output / "failures.csv", FAILURE_FIELDS, failures)
-    summary = aggregate_runs(rows)
-    summary_fields = list(summary[0]) if summary else []
-    write_csv(output / "summary.csv", summary_fields, summary)
+    checkpoint_results(output, rows, accuracy, failures)
     with (output / "metadata.json").open("w", encoding="utf-8") as stream:
         json.dump(metadata(executable, args.tier, commands), stream, indent=2)
         stream.write("\n")
@@ -775,6 +848,65 @@ def numeric_axis(row: dict[str, str]) -> float:
     return float(value)
 
 
+def finite_float(row: dict[str, str], field: str, default: float = math.nan) -> float:
+    try:
+        value = float(row.get(field, ""))
+    except (TypeError, ValueError):
+        return default
+    return value if math.isfinite(value) else default
+
+
+def comparison_key(row: dict[str, str]) -> tuple[Any, ...]:
+    return (
+        row["case"],
+        int(float(row["mesh_elements"])),
+        int(float(row["chemical_elements"])),
+        float(row["relative_tolerance"]),
+    )
+
+
+def comparison_accuracy(accuracy: list[dict[str, str]]) -> dict[tuple[Any, ...], float]:
+    errors: dict[tuple[Any, ...], float] = {}
+    for row in accuracy:
+        if row["study"] != "algorithm_comparison":
+            continue
+        key = (
+            row["case"],
+            int(float(row.get("mesh_elements", 0))),
+            int(float(row.get("chemical_elements", 0))),
+            float(row.get("relative_tolerance", row["axis_value"])),
+            row["surrogate_model"],
+        )
+        normalized = finite_float(row, "max_normalized_error")
+        if not math.isfinite(normalized):
+            tolerance = float(row.get("relative_tolerance", row["axis_value"]))
+            normalized = finite_float(row, "max_relative_error") / tolerance
+        errors[key] = max(errors.get(key, 0.0), normalized)
+    return errors
+
+
+def comparison_valid(
+    row: dict[str, str], errors: dict[tuple[Any, ...], float]
+) -> tuple[bool, float]:
+    key = (*comparison_key(row), row["surrogate_model"])
+    normalized = errors.get(key, math.inf)
+    valid = (
+        finite_float(row, "audit_failures_median", 0.0) == 0.0
+        and finite_float(row, "state_restore_failures_median", 0.0) == 0.0
+        and normalized <= 1.0
+    )
+    return valid, normalized
+
+
+def profile_curve(ratios: list[float], problems: int) -> tuple[list[float], list[float]]:
+    finite = sorted(value for value in ratios if math.isfinite(value))
+    upper = max(finite, default=1.0)
+    taus = sorted({1.0, 1.25, 1.5, 2.0, 3.0, 5.0, 10.0, upper})
+    taus = [value for value in taus if value <= max(10.0, upper)]
+    fractions = [sum(value <= tau for value in finite) / problems for tau in taus]
+    return taus, fractions
+
+
 def plot_results(directory: Path) -> None:
     try:
         import matplotlib
@@ -782,10 +914,11 @@ def plot_results(directory: Path) -> None:
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError as error:
-        raise RuntimeError("Plot generation requires matplotlib") from error
+        raise RuntimeError(f"Plot generation requires matplotlib: {error}") from error
 
     summary = load_csv(directory / "summary.csv")
     accuracy = load_csv(directory / "accuracy.csv")
+    runs = load_csv(directory / "runs.csv")
     figures = directory / "figures"
 
     tolerance = [
@@ -955,6 +1088,286 @@ def plot_results(directory: Path) -> None:
         plt.close(figure)
 
 
+    models = [
+        row for row in summary if row["axis"] == "surrogate_model" and row["mode"] == "adaptive"
+    ]
+    if models:
+        figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+        labels = [f"{row['case']}\n{row['surrogate_model']}" for row in models]
+        axes[0].bar(labels, [float(row["worker_speedup_median"]) for row in models])
+        axes[1].bar(
+            labels, [100 * float(row["exact_call_reduction_median"]) for row in models]
+        )
+        axes[2].bar(labels, [float(row["sensitivity_time_median"]) for row in models])
+        axes[0].axhline(2.0, color="black", linestyle="--", linewidth=1)
+        axes[1].axhline(50.0, color="black", linestyle="--", linewidth=1)
+        axes[0].set(ylabel="Query worker speedup")
+        axes[1].set(ylabel="Exact-call reduction (%)")
+        axes[2].set(ylabel="Sensitivity construction time (s)")
+        for axis in axes:
+            axis.tick_params(axis="x", labelrotation=20)
+        save_figure(figure, figures, "surrogate_model_comparison")
+        plt.close(figure)
+
+    comparison = [
+        row
+        for row in summary
+        if row["study"] == "algorithm_comparison" and row["mode"] == "adaptive"
+    ]
+    if comparison:
+        errors = comparison_accuracy(accuracy)
+        algorithms = sorted({row["surrogate_model"] for row in comparison})
+        problems: dict[tuple[Any, ...], dict[str, dict[str, str]]] = {}
+        for row in comparison:
+            problems.setdefault(comparison_key(row), {})[row["surrogate_model"]] = row
+
+        figure, axes = plt.subplots(1, 2, figsize=(10, 4))
+        for axis, adaptive_field, exact_field, title in (
+            (axes[0], "worker_solve_time_median", "baseline_worker_solve_time_median", "Query worker"),
+            (axes[1], "wall_time_median", "baseline_wall_time_median", "Application wall"),
+        ):
+            ratios: dict[str, list[float]] = {"exact": []}
+            ratios.update({algorithm: [] for algorithm in algorithms})
+            for entries in problems.values():
+                representative = next(iter(entries.values()))
+                costs = {"exact": finite_float(representative, exact_field)}
+                for algorithm, row in entries.items():
+                    valid, _ = comparison_valid(row, errors)
+                    costs[algorithm] = finite_float(row, adaptive_field) if valid else math.inf
+                best = min(value for value in costs.values() if math.isfinite(value) and value > 0.0)
+                for algorithm in ratios:
+                    cost = costs.get(algorithm, math.inf)
+                    ratios[algorithm].append(cost / best if math.isfinite(cost) else math.inf)
+            for algorithm, values in ratios.items():
+                tau, fraction = profile_curve(values, len(problems))
+                axis.step(tau, fraction, where="post", label=algorithm)
+            axis.set_xscale("log")
+            axis.set(
+                xlabel=r"Performance ratio $\tau$",
+                ylabel="Fraction of valid problems",
+                title=f"{title}-time profile",
+                ylim=(0.0, 1.03),
+            )
+            axis.axvline(2.0, color="black", linestyle="--", linewidth=0.8)
+            axis.grid(alpha=0.25)
+        axes[0].legend()
+        save_figure(figure, figures, "algorithm_performance_profiles")
+        plt.close(figure)
+
+        budgets: dict[str, list[float]] = {"exact": []}
+        budgets.update({algorithm: [] for algorithm in algorithms})
+        for entries in problems.values():
+            representative = next(iter(entries.values()))
+            states = max(finite_float(representative, "states_median", 1.0), 1.0)
+            budgets["exact"].append(
+                finite_float(representative, "baseline_exact_solves_median") / states
+            )
+            for algorithm in algorithms:
+                row = entries.get(algorithm)
+                if row is None:
+                    budgets[algorithm].append(math.inf)
+                    continue
+                valid, _ = comparison_valid(row, errors)
+                value = finite_float(row, "exact_solves_median") / states
+                budgets[algorithm].append(value if valid else math.inf)
+        finite_budgets = sorted(
+            {value for values in budgets.values() for value in values if math.isfinite(value)}
+        )
+        if finite_budgets:
+            figure, axis = plt.subplots(figsize=(6, 4))
+            beta = sorted({0.0, *finite_budgets, 1.0})
+            for algorithm, values in budgets.items():
+                fractions = [
+                    sum(value <= limit for value in values if math.isfinite(value)) / len(problems)
+                    for limit in beta
+                ]
+                axis.step(beta, fractions, where="post", label=algorithm)
+            axis.set(
+                xlabel="Exact GEM calls per query state",
+                ylabel="Fraction of valid problems",
+                title="Exact-call data profile",
+                ylim=(0.0, 1.03),
+            )
+            axis.grid(alpha=0.25)
+            axis.legend()
+            save_figure(figure, figures, "algorithm_data_profile")
+            plt.close(figure)
+
+        figure, axes = plt.subplots(1, 2, figsize=(10, 4))
+        for algorithm in algorithms:
+            selected = [row for row in comparison if row["surrogate_model"] == algorithm]
+            x = []
+            time_values = []
+            speedups = []
+            valid_points = []
+            for row in selected:
+                valid, normalized = comparison_valid(row, errors)
+                x.append(max(normalized, 1e-12))
+                time_values.append(finite_float(row, "worker_solve_time_median"))
+                speedups.append(finite_float(row, "worker_speedup_median"))
+                valid_points.append(valid)
+            for valid, marker in ((True, "o"), (False, "x")):
+                indices = [index for index, value in enumerate(valid_points) if value == valid]
+                if not indices:
+                    continue
+                label = algorithm if valid else f"{algorithm} invalid"
+                axes[0].scatter(
+                    [x[index] for index in indices],
+                    [time_values[index] for index in indices],
+                    marker=marker,
+                    label=label,
+                )
+                axes[1].scatter(
+                    [x[index] for index in indices],
+                    [speedups[index] for index in indices],
+                    marker=marker,
+                    label=label,
+                )
+        for axis in axes:
+            axis.set_xscale("log")
+            axis.axvline(1.0, color="black", linestyle="--", linewidth=0.8)
+            axis.grid(alpha=0.25)
+        axes[0].set(
+            xlabel="Maximum normalized error",
+            ylabel="Query worker time (s)",
+            yscale="log",
+            title="Work-precision diagram",
+        )
+        axes[1].set(
+            xlabel="Maximum normalized error",
+            ylabel="Query worker speedup",
+            title="Speedup-accuracy Pareto view",
+        )
+        axes[1].axhline(2.0, color="black", linestyle=":", linewidth=0.8)
+        axes[0].legend(fontsize="small")
+        save_figure(figure, figures, "algorithm_work_precision")
+        plt.close(figure)
+
+        cases = sorted({row["case"] for row in comparison})
+        heatmap = []
+        annotations = []
+        for case in cases:
+            heatmap_row = []
+            annotation_row = []
+            for algorithm in algorithms:
+                selected = [
+                    row
+                    for row in comparison
+                    if row["case"] == case and row["surrogate_model"] == algorithm
+                ]
+                valid_values = [
+                    finite_float(row, "worker_speedup_median")
+                    for row in selected
+                    if comparison_valid(row, errors)[0]
+                ]
+                value = median(valid_values)
+                heatmap_row.append(value if math.isfinite(value) else 0.0)
+                annotation_row.append(f"{value:.2g}x" if math.isfinite(value) else "invalid")
+            heatmap.append(heatmap_row)
+            annotations.append(annotation_row)
+        figure, axis = plt.subplots(figsize=(max(5, 1.8 * len(algorithms)), max(3.5, 0.55 * len(cases))))
+        image = axis.imshow(heatmap, aspect="auto", cmap="viridis")
+        axis.set_xticks(range(len(algorithms)), algorithms)
+        axis.set_yticks(range(len(cases)), cases)
+        axis.set(title="Median valid query-worker speedup")
+        for row_index, row in enumerate(annotations):
+            for column_index, text_value in enumerate(row):
+                axis.text(column_index, row_index, text_value, ha="center", va="center", color="white")
+        figure.colorbar(image, ax=axis, label="Speedup")
+        save_figure(figure, figures, "algorithm_speedup_heatmap")
+        plt.close(figure)
+
+        stage_rows_selected = [
+            row
+            for row in runs
+            if row["study"] == "algorithm_comparison"
+            and int(row["repetition"]) == 0
+            and row["case"] in ("binary_smooth", "binary_boundary")
+        ]
+        if stage_rows_selected:
+            figure, axes = plt.subplots(1, 2, figsize=(10, 4))
+            groups: dict[tuple[str, str, str], list[dict[str, str]]] = {}
+            for row in stage_rows_selected:
+                algorithm = "exact" if row["mode"] == "exact" else row["surrogate_model"]
+                groups.setdefault((row["case"], algorithm, row["axis_value"]), []).append(row)
+            for (case, algorithm, tolerance), group in groups.items():
+                group.sort(key=lambda row: int(row["stage_index"]))
+                stages = [row["stage"] for row in group]
+                axes[0].plot(
+                    stages,
+                    [
+                        finite_float(row, "exact_solves") / max(finite_float(row, "states"), 1.0)
+                        for row in group
+                    ],
+                    "o-",
+                    label=f"{case}:{algorithm}:{tolerance}",
+                )
+                axes[1].plot(
+                    stages,
+                    [finite_float(row, "cache_entries") for row in group],
+                    "o-",
+                    label=f"{case}:{algorithm}:{tolerance}",
+                )
+            axes[0].set(xlabel="Execution stage", ylabel="Exact calls per state")
+            axes[1].set(xlabel="Execution stage", ylabel="Cache entries")
+            axes[0].legend(fontsize="x-small")
+            save_figure(figure, figures, "algorithm_stage_learning")
+            plt.close(figure)
+
+        boundary_runs = [
+            row
+            for row in runs
+            if row["study"] == "algorithm_comparison"
+            and row["case"] == "binary_boundary"
+            and row["stage"] == "query"
+            and int(row["repetition"]) == 0
+        ]
+        exact_boundary = next((row for row in boundary_runs if row["mode"] == "exact"), None)
+        adaptive_boundary = [row for row in boundary_runs if row["mode"] == "adaptive"]
+        if exact_boundary and adaptive_boundary:
+            exact_path = Path(exact_boundary["sample_file"])
+            if exact_path.is_file():
+                exact_samples = read_samples(exact_path)
+                coordinate = [row.get("x", row.get("id", 0.0)) for row in exact_samples]
+                figure, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
+                axes[0].plot(
+                    coordinate,
+                    [row["bcc_fraction"] for row in exact_samples],
+                    label="exact BCC",
+                )
+                axes[0].plot(
+                    coordinate,
+                    [row["hcp_fraction"] for row in exact_samples],
+                    label="exact HCP",
+                )
+                for row in adaptive_boundary:
+                    sample_path = Path(row["sample_file"])
+                    if not sample_path.is_file():
+                        continue
+                    samples = read_samples(sample_path)
+                    maximum_error = [
+                        max(
+                            abs(expected[output] - actual[output])
+                            for output in CASE_OUTPUTS["binary_boundary"]
+                        )
+                        for expected, actual in zip(exact_samples, samples)
+                    ]
+                    axes[1].semilogy(
+                        coordinate,
+                        [max(value, 1e-18) for value in maximum_error],
+                        label=(
+                            f"{row['surrogate_model']} "
+                            f"(phase={row['phase_rejections']}, geometry={row['geometry_rejections']})"
+                        ),
+                    )
+                axes[0].set(ylabel="Exact phase fraction")
+                axes[1].set(xlabel="Trajectory coordinate", ylabel="Maximum absolute output error")
+                axes[0].legend()
+                axes[1].legend(fontsize="small")
+                save_figure(figure, figures, "phase_boundary_trajectory")
+                plt.close(figure)
+
+
 def validate_suite(args: argparse.Namespace) -> None:
     with tempfile.TemporaryDirectory(prefix="thermochimica-adaptive-smoke-") as temporary:
         run_args = argparse.Namespace(
@@ -990,6 +1403,18 @@ def validate_suite(args: argparse.Namespace) -> None:
             (output / "figures").glob("*.svg")
         ):
             raise AssertionError("Smoke validation did not generate PNG and SVG figures")
+        for name in (
+            "algorithm_performance_profiles",
+            "algorithm_data_profile",
+            "algorithm_work_precision",
+            "algorithm_speedup_heatmap",
+            "algorithm_stage_learning",
+            "phase_boundary_trajectory",
+        ):
+            if not (output / "figures" / f"{name}.png").is_file() or not (
+                output / "figures" / f"{name}.svg"
+            ).is_file():
+                raise AssertionError(f"Smoke validation did not generate {name}")
 
 
 def parser() -> argparse.ArgumentParser:
