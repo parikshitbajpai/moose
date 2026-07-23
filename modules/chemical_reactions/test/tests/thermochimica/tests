@@ -457,6 +457,83 @@
     capabilities = 'thermochimica'
   []
 
+  [kkt_linear_benchmark_smoke]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_smooth.i
+    cli_args = 'Mesh/gen/nx=200 ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=10 Outputs/csv=false'
+    expect_out = 'states=200.*audit_failures=0.*linear_retrieves=[1-9][0-9]*'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The adaptive Thermochimica executor shall construct fixed-assemblage sensitivities and retrieve safeguarded linear predictions'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_boundary_smoke]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_boundary.i
+    cli_args = 'Mesh/gen/nx=200 ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=10 Outputs/csv=false'
+    expect_out = 'states=200.*rejections=\(phase:[1-9][0-9]*,geometry:[0-9]+'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The KKT-linear predictor shall reject candidate neighborhoods containing different phase assemblages'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_strict_audit]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/binary_smooth.i
+    cli_args = 'Mesh/gen/nx=200 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/surrogate_relative_tolerance=1e-4 ChemicalComposition/thermo/surrogate_audit_interval=1 Outputs/csv=false'
+    expect_out = 'states=200.*audits=[1-9][0-9]*, audit_failures=0'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'Every accepted KKT-linear prediction shall satisfy the configured strict tolerance when deterministic auditing is enabled for every retrieval'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_fluoride_smoke]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/multielement_fluoride.i
+    cli_args = 'Mesh/gen/nx=20 Executioner/num_steps=1 ChemicalComposition/thermo/elements="Li Be F Zr U" ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=1 Outputs/csv=false'
+    expect_out = 'states=20.*exact_solves=20.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The KKT-linear predictor shall fall back to exact equilibrium for an unqualified multielement fluoride solution model'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_lif_state_isolation]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/lif_excess_f.i
+    cli_args = 'Mesh/gen/nx=30 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/surrogate_relative_tolerance=1e-3 ChemicalComposition/thermo/surrogate_audit_interval=1 Outputs/csv=false'
+    expect_out = 'states=30.*exact_solves=30.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*.*state_restore_failures=0'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'Sensitivity trials shall not alter subsequent exact Li-F equilibria when an inactive SUBQ phase is present'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_lif_unsupported_fallback]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/lif_low_temperature.i
+    cli_args = 'Mesh/gen/nx=20 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear Outputs/csv=false'
+    expect_out = 'states=20.*exact_solves=20.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'A low-temperature Li-F system containing an unqualified inactive SUBQ phase shall fall back to exact GEM'
+    capabilities = 'thermochimica'
+  []
+
+  [kkt_linear_active_subq_fallback]
+    type = RunApp
+    input = ../../../benchmarks/thermochimica_adaptive/cases/flibe_msfl.i
+    cli_args = 'Mesh/gen/nx=20 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear Outputs/csv=false'
+    expect_out = 'states=20.*exact_solves=20.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*.*state_restore_failures=0'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'Active SUBQ states that do not pass upstream sensitivity qualification shall remain exact'
+    capabilities = 'thermochimica'
+  []
+
   [nearest_cached_warm_start]
     type = RunApp
     input = MoRu.i

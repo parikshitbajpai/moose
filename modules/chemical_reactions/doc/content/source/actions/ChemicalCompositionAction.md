@@ -214,6 +214,25 @@ states have the same stable phase assemblage, bracket the query in every input c
 a leave-one-out error check. Amounts and pressures must remain nonnegative, and fractions must
 remain between zero and one. Any failed check falls back to an exact equilibrium solve.
 
+The [!param](/ChemicalComposition/surrogate_model) selects the adaptive approximation:
+
+- `local_idw`, the default, uses the phase-aware inverse-distance interpolation described above.
+- `kkt_linear` differentiates the converged, fixed-assemblage equilibrium conditions and stores a
+  first-order mapping gradient at each qualified exact state. It uses logarithmic temperature,
+  logarithmic pressure, an orthonormal composition-simplex basis, and logarithmic total amount as
+  cache coordinates. A prediction is retrieved only inside the record's empirically validated
+  ellipsoid of accuracy. Its versioned regime token includes phase instances, phase-model types,
+  miscibility identity, and active solution-phase constituents, because any of these active-set
+  changes invalidates the fixed-set derivative even when the phase names do not change.
+
+Sensitivity construction and directional output evaluation are transactional: the converged
+Thermochimica state is copied before perturbation and restored without subminimizing inactive
+phases. The KKT model is fail-closed by phase model. Currently only systems whose solution models
+are all `IDMX` or `QKTO` may produce records; systems containing `RKMP`, `SUBL`, `SUBI`, `SUBM`,
+`SUBG`, or `SUBQ` remain exact
+until their upstream finite-difference qualification is complete. Singular, poorly conditioned,
+near-disappearing, unsupported, or physically invalid states also remain exact.
+
 The acceptance check uses [!param](/ChemicalComposition/surrogate_relative_tolerance) together
 with optional per-output absolute tolerances:
 
@@ -231,11 +250,16 @@ Cache entries are local to a worker and are not persisted or exchanged between t
 ranks. [!param](/ChemicalComposition/cache_max_entries) bounds each worker cache; once full, the
 worker continues using existing entries but stops admitting new ones. Enable
 [!param](/ChemicalComposition/report_performance) to inspect exact solves, cache hits, rejection
-reasons, audits, warm starts, and saturation.
+reasons, audits, warm starts, saturation, sensitivity factorizations, unsupported-model,
+state-restoration, complementarity and residual rejections, linear retrieves, and
+ellipsoid growth or shrinkage. `sensitivity_bytes` reports the storage occupied by cached
+output/state Jacobians and ellipsoid matrices; it does not include allocator overhead or the base
+cache records.
 
 !alert warning title=Empirical Error Control
-The leave-one-out check and exact audits provide empirical safeguards, not a mathematical error
-bound for every unaudited prediction. Use `acceleration = exact` when approximate equilibrium
+The leave-one-out or ellipsoid checks and exact audits provide empirical safeguards, not a
+mathematical error bound for every unaudited prediction. A KKT sensitivity is valid only while its
+active phase assemblage remains unchanged. Use `acceleration = exact` when approximate equilibrium
 outputs are not acceptable.
 
 ## Example Input Syntax

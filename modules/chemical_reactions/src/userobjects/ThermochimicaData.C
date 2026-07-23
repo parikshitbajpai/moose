@@ -145,8 +145,19 @@ ThermochimicaData::initialize()
   _nearest_warm_starts = 0;
   _cold_retries = 0;
   _cache_entries = 0;
+  _sensitivity_successes = 0;
+  _sensitivity_failures = 0;
+  _sensitivity_condition_rejections = 0;
+  _sensitivity_residual_rejections = 0;
+  _unsupported_model_rejections = 0;
+  _state_restore_failures = 0;
+  _complementarity_rejections = 0;
+  _linear_retrieves = 0;
+  _ellipsoid_growths = 0;
+  _ellipsoid_shrinks = 0;
   _cache_saturated = false;
   _solve_seconds = 0;
+  _sensitivity_seconds = 0;
   _packing_seconds = 0;
   _ipc_seconds = 0;
 }
@@ -293,8 +304,20 @@ ThermochimicaData::threadJoin(const UserObject & other)
   _nearest_warm_starts += data._nearest_warm_starts;
   _cold_retries += data._cold_retries;
   _cache_entries += data._cache_entries;
+  _sensitivity_successes += data._sensitivity_successes;
+  _sensitivity_failures += data._sensitivity_failures;
+  _sensitivity_condition_rejections += data._sensitivity_condition_rejections;
+  _sensitivity_residual_rejections += data._sensitivity_residual_rejections;
+  _unsupported_model_rejections += data._unsupported_model_rejections;
+  _state_restore_failures += data._state_restore_failures;
+  _complementarity_rejections += data._complementarity_rejections;
+  _linear_retrieves += data._linear_retrieves;
+  _ellipsoid_growths += data._ellipsoid_growths;
+  _ellipsoid_shrinks += data._ellipsoid_shrinks;
+  _sensitivity_bytes += data._sensitivity_bytes;
   _cache_saturated = _cache_saturated || data._cache_saturated;
   _solve_seconds += data._solve_seconds;
+  _sensitivity_seconds += data._sensitivity_seconds;
   _packing_seconds += data._packing_seconds;
   _ipc_seconds += data._ipc_seconds;
 }
@@ -320,6 +343,18 @@ ThermochimicaData::finalize()
              << ", nearest_warm_starts=" << _nearest_warm_starts
              << ", cold_retries=" << _cold_retries << ", cache_entries=" << _cache_entries
              << ", cache_saturated=" << (_cache_saturated ? 1 : 0)
+             << ", sensitivity_successes=" << _sensitivity_successes
+             << ", sensitivity_failures=" << _sensitivity_failures
+             << ", sensitivity_condition_rejections=" << _sensitivity_condition_rejections
+             << ", sensitivity_residual_rejections=" << _sensitivity_residual_rejections
+             << ", unsupported_model_rejections=" << _unsupported_model_rejections
+             << ", state_restore_failures=" << _state_restore_failures
+             << ", complementarity_rejections=" << _complementarity_rejections
+             << ", linear_retrieves=" << _linear_retrieves
+             << ", ellipsoid_growths=" << _ellipsoid_growths
+             << ", ellipsoid_shrinks=" << _ellipsoid_shrinks
+             << ", sensitivity_bytes=" << _sensitivity_bytes
+             << ", sensitivity_time=" << _sensitivity_seconds << " s"
              << ", worker_solve_time=" << _solve_seconds << " s, packing_time=" << _packing_seconds
              << " s, ipc_time=" << _ipc_seconds << " s" << std::endl;
 }
@@ -483,7 +518,19 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _header->cold_retries = 0;
   _header->cache_entries = 0;
   _header->cache_saturated = 0;
+  _header->sensitivity_successes = 0;
+  _header->sensitivity_failures = 0;
+  _header->sensitivity_condition_rejections = 0;
+  _header->sensitivity_residual_rejections = 0;
+  _header->unsupported_model_rejections = 0;
+  _header->state_restore_failures = 0;
+  _header->complementarity_rejections = 0;
+  _header->linear_retrieves = 0;
+  _header->ellipsoid_growths = 0;
+  _header->ellipsoid_shrinks = 0;
+  _header->sensitivity_bytes = 0;
   _header->solve_seconds = 0;
+  _header->sensitivity_seconds = 0;
   const auto ipc_start = std::chrono::steady_clock::now();
   writeMessage('Q');
   if (readMessage() != 'R')
@@ -521,8 +568,20 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _nearest_warm_starts += _header->nearest_warm_starts;
   _cold_retries += _header->cold_retries;
   _cache_entries = _header->cache_entries;
+  _sensitivity_successes += _header->sensitivity_successes;
+  _sensitivity_failures += _header->sensitivity_failures;
+  _sensitivity_condition_rejections += _header->sensitivity_condition_rejections;
+  _sensitivity_residual_rejections += _header->sensitivity_residual_rejections;
+  _unsupported_model_rejections += _header->unsupported_model_rejections;
+  _state_restore_failures += _header->state_restore_failures;
+  _complementarity_rejections += _header->complementarity_rejections;
+  _linear_retrieves += _header->linear_retrieves;
+  _ellipsoid_growths += _header->ellipsoid_growths;
+  _ellipsoid_shrinks += _header->ellipsoid_shrinks;
+  _sensitivity_bytes = _header->sensitivity_bytes;
   _cache_saturated = _cache_saturated || _header->cache_saturated;
   _solve_seconds += _header->solve_seconds;
+  _sensitivity_seconds += _header->sensitivity_seconds;
   _ipc_seconds += std::max<Real>(0.0, round_trip_seconds - _header->solve_seconds);
 }
 
@@ -612,7 +671,15 @@ ThermochimicaData::workerLoop()
     _exit(1);
   while (true)
   {
-    readMessage();
+    char message = 0;
+    ssize_t received;
+    do
+      received = recv(_socket, &message, sizeof(message), 0);
+    while (received < 0 && errno == EINTR);
+    if (received == 0)
+      _exit(0);
+    if (received != sizeof(message))
+      _exit(1);
     if (_header->command == static_cast<unsigned int>(Command::STOP))
     {
       writeMessage('R');
@@ -630,6 +697,7 @@ ThermochimicaData::workerLoop()
       _row_status[row] = solveRow(row);
 #ifdef THERMOCHIMICA_ENABLED
     _header->cache_entries = _cache ? _cache->size() : 0;
+    _header->sensitivity_bytes = _worker_sensitivity_bytes;
     _header->cache_saturated =
         _cache && _cache->size() >= _configuration->cache_max_entries ? 1 : 0;
 #endif
@@ -739,6 +807,38 @@ ThermochimicaData::solveRow(const unsigned int row)
       _worker_has_previous_solve = true;
   }
 
+  if (const auto output_info = evaluateCurrentOutputs(row, result); output_info != 0)
+    return output_info;
+  bool audit_failed = false;
+  if (audit)
+  {
+    ++_header->audits;
+    if (!outputsWithinTolerance(_audit_prediction, result))
+    {
+      audit_failed = true;
+      ++_header->audit_failures;
+      if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
+        shrinkAuditedEllipsoid(cache_key);
+    }
+  }
+  const bool represented =
+      cacheable &&
+      _configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR &&
+      updateKktEllipsoid(cache_key, total_scale, phase_signature, result);
+  if (cacheable && (!represented || audit_failed) &&
+      _cache->size() < _configuration->cache_max_entries)
+    cacheExactRow(row, cache_key, total_scale, phase_signature, reinit ? &*reinit : nullptr);
+  return 0;
+#else
+  return ENOSYS;
+#endif
+}
+
+#ifdef THERMOCHIMICA_ENABLED
+int
+ThermochimicaData::evaluateCurrentOutputs(const unsigned int row, Real * const result) const
+{
+  const auto * input = _inputs + row * _configuration->inputWidth();
   const auto total_input =
       std::accumulate(input + 2, input + _configuration->inputWidth(), Real(0));
   const bool use_indexed_outputs = std::all_of(input + 2,
@@ -753,11 +853,12 @@ ThermochimicaData::solveRow(const unsigned int row)
     for (const auto phase : index_range(_configuration->phase_indices))
       if (use_indexed_outputs)
       {
-        const auto result = Thermochimica::getPhaseMoles(_configuration->phase_indices[phase]);
-        if (result.second != 0)
-          return result.second;
-        if (result.first > 0.0)
-          phase_total += result.first;
+        const auto phase_result =
+            Thermochimica::getPhaseMoles(_configuration->phase_indices[phase]);
+        if (phase_result.second != 0)
+          return phase_result.second;
+        if (phase_result.first > 0.0)
+          phase_total += phase_result.first;
       }
       else
       {
@@ -769,6 +870,7 @@ ThermochimicaData::solveRow(const unsigned int row)
           phase_total += moles_phase[phase_index - 1];
       }
   }
+
   OutputEvaluationContext context{use_indexed_outputs, moles_phase, phase_total, input[1], {}};
   for (const auto output : index_range(_configuration->outputs))
   {
@@ -778,21 +880,9 @@ ThermochimicaData::solveRow(const unsigned int row)
     if (info != 0)
       return info;
   }
-  if (audit)
-  {
-    ++_header->audits;
-    if (!outputsWithinTolerance(_audit_prediction, result))
-      ++_header->audit_failures;
-  }
-  if (cacheable && _cache->size() < _configuration->cache_max_entries)
-    cacheExactRow(row, cache_key, total_scale, phase_signature, reinit ? &*reinit : nullptr);
   return 0;
-#else
-  return ENOSYS;
-#endif
 }
 
-#ifdef THERMOCHIMICA_ENABLED
 bool
 ThermochimicaData::normalizedInput(const unsigned int row,
                                    std::vector<Real> & key,
@@ -832,10 +922,29 @@ ThermochimicaData::normalizedInput(const unsigned int row,
     return false;
 
   key.resize(_configuration->inputWidth());
-  key[0] = temperature_kelvin / 298.15;
-  key[1] = pressure_bar;
-  for (const auto i : index_range(_configuration->elements))
-    key[2 + i] = composition[i] / total;
+  if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
+  {
+    key[0] = std::log(temperature_kelvin / 298.15);
+    key[1] = std::log(pressure_bar);
+    const auto elements = _configuration->elements.size();
+    for (const auto column : make_range(elements > 0 ? elements - 1 : 0))
+    {
+      const Real denominator = std::sqrt(Real((column + 1) * (column + 2)));
+      Real coordinate = 0.0;
+      for (const auto element : make_range(column + 1))
+        coordinate += composition[element] / total / denominator;
+      coordinate -= composition[column + 1] / total * Real(column + 1) / denominator;
+      key[2 + column] = coordinate;
+    }
+    key.back() = _configuration->composition_is_fraction ? 0.0 : std::log(total);
+  }
+  else
+  {
+    key[0] = temperature_kelvin / 298.15;
+    key[1] = pressure_bar;
+    for (const auto i : index_range(_configuration->elements))
+      key[2 + i] = composition[i] / total;
+  }
   total_scale = _configuration->composition_is_fraction ? 1.0 : total;
   return true;
 }
@@ -862,6 +971,9 @@ ThermochimicaData::predictRow(const unsigned int row,
                               const Real total_scale,
                               bool & audit)
 {
+  if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
+    return predictKktRow(row, key, total_scale, audit);
+
   if (!_cache || !_cache->size())
   {
     ++_header->geometry_rejections;
@@ -994,6 +1106,336 @@ ThermochimicaData::predictRow(const unsigned int row,
   return true;
 }
 
+std::vector<Real>
+ThermochimicaData::physicalInputDirection(const std::vector<Real> & internal_inputs,
+                                          const unsigned int coordinate) const
+{
+  std::vector<Real> direction(internal_inputs.size(), 0.0);
+  if (coordinate == 0)
+    direction[0] = internal_inputs[0];
+  else if (coordinate == 1)
+    direction[1] = internal_inputs[1];
+  else
+  {
+    const Real total = std::accumulate(internal_inputs.begin() + 2, internal_inputs.end(), 0.0);
+    if (coordinate == internal_inputs.size() - 1)
+    {
+      if (!_configuration->composition_is_fraction)
+        std::copy(internal_inputs.begin() + 2, internal_inputs.end(), direction.begin() + 2);
+    }
+    else
+    {
+      const auto column = coordinate - 2;
+      const Real denominator = std::sqrt(Real((column + 1) * (column + 2)));
+      for (const auto element : make_range(column + 1))
+      {
+        const auto [system_index, info] =
+            Thermochimica::getElementIndex(_configuration->element_ids[element]);
+        if (info != 0)
+          return {};
+        direction[2 + system_index] = total / denominator;
+      }
+      const auto [system_index, info] =
+          Thermochimica::getElementIndex(_configuration->element_ids[column + 1]);
+      if (info != 0)
+        return {};
+      direction[2 + system_index] = -total * Real(column + 1) / denominator;
+    }
+  }
+  return direction;
+}
+
+bool
+ThermochimicaData::buildKktSensitivity(CacheRecord & record,
+                                       const unsigned int row,
+                                       const std::vector<Real> & key)
+{
+  if (_configuration->needs_system_properties)
+    return false;
+
+  const auto start = std::chrono::steady_clock::now();
+  const auto [qualified, qualification_info] =
+      Thermochimica::getEquilibriumSensitivityQualification();
+  if (qualification_info != 0 || !qualified)
+  {
+    ++_header->sensitivity_failures;
+    if (qualification_info == 0)
+      ++_header->unsupported_model_rejections;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+  const auto [info, rcond] = Thermochimica::computeEquilibriumSensitivity();
+  record.sensitivity_rcond = rcond;
+  if (info != 0)
+  {
+    ++_header->sensitivity_failures;
+    if (info == 3)
+      ++_header->sensitivity_condition_rejections;
+    else if (info == 4 || info == 5)
+      ++_header->sensitivity_residual_rejections;
+    else if (info == 6)
+      ++_header->state_restore_failures;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+  const auto diagnostics = Thermochimica::getEquilibriumSensitivityDiagnostics();
+  if (diagnostics.status != 0 || !diagnostics.qualified)
+  {
+    ++_header->sensitivity_failures;
+    ++_header->unsupported_model_rejections;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+  const auto [internal_inputs, input_info] = Thermochimica::getEquilibriumSensitivityInputs();
+  if (input_info != 0 || internal_inputs.size() != key.size())
+  {
+    ++_header->sensitivity_failures;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+  const auto state = Thermochimica::getEquilibriumSensitivityState();
+  if (state.status != 0 || state.parameters != internal_inputs.size())
+  {
+    ++_header->sensitivity_failures;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+
+  const auto outputs = _configuration->outputWidth();
+  const auto dimension = key.size();
+  record.output_jacobian.assign(outputs * dimension, 0.0);
+  record.state_log_amounts.assign(state.log_amounts.begin(), state.log_amounts.end());
+  record.state_jacobian.assign(state.log_amounts.size() * dimension, 0.0);
+  std::vector<Real> plus(outputs), minus(outputs), delta(internal_inputs.size());
+  constexpr Real h = 1e-5;
+  auto * mutable_input = _inputs + row * _configuration->inputWidth();
+  const Real original_pressure = mutable_input[1];
+  bool success = true;
+  for (const auto coordinate : index_range(key))
+  {
+    const auto direction = physicalInputDirection(internal_inputs, coordinate);
+    if (direction.size() != internal_inputs.size())
+    {
+      success = false;
+      break;
+    }
+    for (const auto amount : index_range(record.state_log_amounts))
+      for (const auto parameter : index_range(direction))
+        record.state_jacobian[amount * dimension + coordinate] +=
+            state.jacobian[amount * state.parameters + parameter] * direction[parameter];
+    for (const auto sign : {-1, 1})
+    {
+      for (const auto component : index_range(delta))
+        delta[component] = sign * h * direction[component];
+      if (coordinate == 1)
+        mutable_input[1] = original_pressure * (1.0 + sign * h);
+      auto & values = sign > 0 ? plus : minus;
+      const auto apply_info = Thermochimica::applyEquilibriumSensitivity(delta);
+      if (apply_info != 0 || evaluateCurrentOutputs(row, values.data()) != 0)
+      {
+        if (apply_info == 3)
+          ++_header->state_restore_failures;
+        else if (apply_info == 4)
+          ++_header->complementarity_rejections;
+        success = false;
+        break;
+      }
+      Real scale = record.total_scale;
+      if (!_configuration->composition_is_fraction && coordinate == dimension - 1)
+        scale *= 1.0 + sign * h;
+      for (const auto output : index_range(values))
+        if (_configuration->output_extensive[output])
+          values[output] /= scale;
+    }
+    mutable_input[1] = original_pressure;
+    if (!success)
+      break;
+    for (const auto output : index_range(plus))
+    {
+      const Real absolute = _configuration->surrogate_absolute_tolerances[output] /
+                            (_configuration->output_extensive[output] ? record.total_scale : 1.0);
+      const Real zero_floor = std::max(absolute, 1e-14);
+      record.output_jacobian[output * dimension + coordinate] =
+          std::max({std::abs(record.outputs[output]),
+                    std::abs(plus[output]),
+                    std::abs(minus[output])}) <= zero_floor
+              ? 0.0
+              : (plus[output] - minus[output]) / (2.0 * h);
+    }
+  }
+  if (Thermochimica::restoreEquilibriumSensitivity() != 0)
+  {
+    ++_header->state_restore_failures;
+    success = false;
+  }
+  mutable_input[1] = original_pressure;
+  if (!success || !std::all_of(record.output_jacobian.begin(),
+                               record.output_jacobian.end(),
+                               [](const Real value) { return std::isfinite(value); }))
+  {
+    ++_header->sensitivity_failures;
+    _header->sensitivity_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+    return false;
+  }
+
+  record.metric.assign(dimension * dimension, 0.0);
+  for (const auto component : index_range(key))
+    record.metric[component * dimension + component] = 1.0;
+  for (const auto output : index_range(record.outputs))
+  {
+    const Real absolute = _configuration->surrogate_absolute_tolerances[output] /
+                          (_configuration->output_extensive[output] ? record.total_scale : 1.0);
+    const Real scale = std::max(absolute + _configuration->surrogate_relative_tolerance *
+                                               std::abs(record.outputs[output]),
+                                1e-14 * std::max(1.0, std::abs(record.outputs[output])));
+    for (const auto i : index_range(key))
+      for (const auto j : index_range(key))
+        record.metric[i * dimension + j] += record.output_jacobian[output * dimension + i] *
+                                            record.output_jacobian[output * dimension + j] /
+                                            (scale * scale);
+  }
+  record.sensitivity_available = true;
+  ++_header->sensitivity_successes;
+  _header->sensitivity_seconds +=
+      std::chrono::duration<Real>(std::chrono::steady_clock::now() - start).count();
+  return true;
+}
+
+bool
+ThermochimicaData::predictKktRow(const unsigned int row,
+                                 const std::vector<Real> & key,
+                                 const Real total_scale,
+                                 bool & audit)
+{
+  if (!_cache || !_cache->size())
+  {
+    ++_header->geometry_rejections;
+    return false;
+  }
+  auto * result = _results + row * _configuration->outputWidth();
+  const auto & nearest = _cache->getNeighbor(key);
+  const auto & nearest_record = _cache_records[std::get<1>(nearest)];
+  if (std::get<2>(nearest) <= 1e-24)
+  {
+    for (const auto output : index_range(nearest_record.outputs))
+      result[output] = nearest_record.outputs[output] *
+                       (_configuration->output_extensive[output] ? total_scale : 1.0);
+    ++_header->exact_reuse_hits;
+    return true;
+  }
+
+  const auto requested = _configuration->surrogate_neighbors
+                             ? _configuration->surrogate_neighbors
+                             : std::max<std::size_t>(2 * key.size() + 1, 8);
+  const auto neighbors =
+      _cache->getNeighbors(key, std::min<std::size_t>(requested, _cache->size()));
+  const auto & signature = _cache_records[std::get<1>(neighbors.front())].phase_signature;
+  const auto & active_signature =
+      _cache_records[std::get<1>(neighbors.front())].active_species_signature;
+  const auto & assemblage_token =
+      _cache_records[std::get<1>(neighbors.front())].assemblage_token;
+  const bool mixed_signatures =
+      std::any_of(neighbors.begin(),
+                  neighbors.end(),
+                  [&](const auto & neighbor)
+                  {
+                    const auto & record = _cache_records[std::get<1>(neighbor)];
+                    return record.phase_signature != signature ||
+                           record.active_species_signature != active_signature ||
+                           record.assemblage_token != assemblage_token;
+                  });
+  if (mixed_signatures)
+    ++_header->phase_rejections;
+  if (neighbors.size() > 1)
+  {
+    const auto & second = _cache_records[std::get<1>(neighbors[1])];
+    if (second.phase_signature != signature ||
+        second.active_species_signature != active_signature ||
+        second.assemblage_token != assemblage_token)
+      return false;
+  }
+
+  std::size_t selected = std::numeric_limits<std::size_t>::max();
+  Real selected_metric = std::numeric_limits<Real>::max();
+  std::vector<Real> selected_delta(key.size());
+  for (const auto & neighbor : neighbors)
+  {
+    const auto index = std::get<1>(neighbor);
+    const auto & record = _cache_records[index];
+    if (!record.sensitivity_available || record.phase_signature != signature ||
+        record.active_species_signature != active_signature ||
+        record.assemblage_token != assemblage_token)
+      continue;
+    std::vector<Real> delta(key.size()), metric_delta(key.size(), 0.0);
+    for (const auto i : index_range(key))
+      delta[i] = key[i] - record.coordinates[i];
+    for (const auto i : index_range(key))
+      for (const auto j : index_range(key))
+        metric_delta[i] += record.metric[i * key.size() + j] * delta[j];
+    const Real value = std::inner_product(delta.begin(), delta.end(), metric_delta.begin(), 0.0);
+    if (value <= 1.0 && value < selected_metric)
+    {
+      selected = index;
+      selected_metric = value;
+      selected_delta = std::move(delta);
+    }
+  }
+  if (selected == std::numeric_limits<std::size_t>::max())
+  {
+    ++_header->geometry_rejections;
+    return false;
+  }
+
+  const auto & record = _cache_records[selected];
+  for (const auto amount : index_range(record.state_log_amounts))
+  {
+    Real predicted_log_amount = record.state_log_amounts[amount];
+    for (const auto component : index_range(key))
+      predicted_log_amount +=
+          record.state_jacobian[amount * key.size() + component] * selected_delta[component];
+    if (!std::isfinite(predicted_log_amount) || predicted_log_amount <= std::log(1e-20))
+    {
+      ++_header->complementarity_rejections;
+      return false;
+    }
+  }
+  for (const auto output : index_range(record.outputs))
+  {
+    Real value = record.outputs[output];
+    for (const auto component : index_range(key))
+      value += record.output_jacobian[output * key.size() + component] * selected_delta[component];
+    result[output] = value * (_configuration->output_extensive[output] ? total_scale : 1.0);
+    if (!std::isfinite(result[output]) ||
+        (_configuration->output_nonnegative[output] && result[output] < 0.0) ||
+        (_configuration->output_fraction[output] && result[output] > 1.0))
+    {
+      ++_header->invariant_rejections;
+      return false;
+    }
+  }
+
+  ++_worker_accepted_predictions;
+  audit = _configuration->surrogate_audit_interval &&
+          _worker_accepted_predictions % _configuration->surrogate_audit_interval == 0;
+  if (audit)
+  {
+    _audit_prediction.assign(result, result + _configuration->outputWidth());
+    _audit_record = selected;
+  }
+  else
+  {
+    ++_header->surrogate_hits;
+    ++_header->linear_retrieves;
+  }
+  return true;
+}
+
 bool
 ThermochimicaData::loadNearestState(const std::vector<Real> & key, const Real total_scale)
 {
@@ -1010,6 +1452,100 @@ ThermochimicaData::loadNearestState(const std::vector<Real> & key, const Real to
   return true;
 }
 
+bool
+ThermochimicaData::updateKktEllipsoid(const std::vector<Real> & key,
+                                      const Real total_scale,
+                                      const std::vector<int> & phase_signature,
+                                      const Real * const exact_outputs)
+{
+  if (!_cache || !_cache->size())
+    return false;
+  auto signature = phase_signature;
+  signature.erase(std::remove(signature.begin(), signature.end(), 0), signature.end());
+  std::sort(signature.begin(), signature.end());
+  const auto [active_signature, active_info] = Thermochimica::getActiveSolutionSpecies();
+  if (active_info != 0)
+    return false;
+  const auto [assemblage_token, token_info] = Thermochimica::getEquilibriumAssemblageToken();
+  if (token_info != 0)
+    return false;
+  const auto requested = _configuration->surrogate_neighbors
+                             ? _configuration->surrogate_neighbors
+                             : std::max<std::size_t>(2 * key.size() + 1, 8);
+  const auto neighbors =
+      _cache->getNeighbors(key, std::min<std::size_t>(requested, _cache->size()));
+  for (const auto & neighbor : neighbors)
+  {
+    auto & record = _cache_records[std::get<1>(neighbor)];
+    if (!record.sensitivity_available || record.phase_signature != signature ||
+        record.active_species_signature != active_signature ||
+        record.assemblage_token != assemblage_token)
+      continue;
+    std::vector<Real> delta(key.size()), metric_delta(key.size(), 0.0);
+    for (const auto i : index_range(key))
+      delta[i] = key[i] - record.coordinates[i];
+    bool accurate = true;
+    for (const auto output : index_range(record.outputs))
+    {
+      Real predicted = record.outputs[output];
+      for (const auto component : index_range(key))
+        predicted += record.output_jacobian[output * key.size() + component] * delta[component];
+      const Real exact =
+          exact_outputs[output] / (_configuration->output_extensive[output] ? total_scale : 1.0);
+      const Real absolute = _configuration->surrogate_absolute_tolerances[output] /
+                            (_configuration->output_extensive[output] ? total_scale : 1.0);
+      const Real tolerance = absolute + _configuration->surrogate_relative_tolerance *
+                                            std::max(std::abs(exact), std::abs(predicted));
+      if (!std::isfinite(predicted) || std::abs(exact - predicted) > tolerance)
+      {
+        accurate = false;
+        break;
+      }
+    }
+    if (!accurate)
+      continue;
+    for (const auto i : index_range(key))
+      for (const auto j : index_range(key))
+        metric_delta[i] += record.metric[i * key.size() + j] * delta[j];
+    const Real value = std::inner_product(delta.begin(), delta.end(), metric_delta.begin(), 0.0);
+    if (value > 1.0)
+    {
+      const Real coefficient = (value - 1.0) / (value * value);
+      for (const auto i : index_range(key))
+        for (const auto j : index_range(key))
+          record.metric[i * key.size() + j] -= coefficient * metric_delta[i] * metric_delta[j];
+      ++_header->ellipsoid_growths;
+    }
+    return true;
+  }
+  return false;
+}
+
+void
+ThermochimicaData::shrinkAuditedEllipsoid(const std::vector<Real> & key)
+{
+  if (_audit_record >= _cache_records.size())
+    return;
+  auto & record = _cache_records[_audit_record];
+  std::vector<Real> delta(key.size()), metric_delta(key.size(), 0.0);
+  for (const auto i : index_range(key))
+    delta[i] = key[i] - record.coordinates[i];
+  for (const auto i : index_range(key))
+    for (const auto j : index_range(key))
+      metric_delta[i] += record.metric[i * key.size() + j] * delta[j];
+  const Real value = std::inner_product(delta.begin(), delta.end(), metric_delta.begin(), 0.0);
+  const Real norm2 = std::inner_product(delta.begin(), delta.end(), delta.begin(), 0.0);
+  if (norm2 > 0.0 && value <= 1.0)
+  {
+    const Real coefficient = (1.0 + 1e-6 - value) / (norm2 * norm2);
+    for (const auto i : index_range(key))
+      for (const auto j : index_range(key))
+        record.metric[i * key.size() + j] += coefficient * delta[i] * delta[j];
+    ++_header->ellipsoid_shrinks;
+  }
+  _audit_record = std::numeric_limits<std::size_t>::max();
+}
+
 void
 ThermochimicaData::cacheExactRow(const unsigned int row,
                                  const std::vector<Real> & key,
@@ -1018,6 +1554,7 @@ ThermochimicaData::cacheExactRow(const unsigned int row,
                                  const Thermochimica::ReinitializationData * const reinit)
 {
   CacheRecord record;
+  record.coordinates = key;
   const auto * result = _results + row * _configuration->outputWidth();
   record.outputs.assign(result, result + _configuration->outputWidth());
   for (const auto output : index_range(record.outputs))
@@ -1028,7 +1565,23 @@ ThermochimicaData::cacheExactRow(const unsigned int row,
       std::remove(record.phase_signature.begin(), record.phase_signature.end(), 0),
       record.phase_signature.end());
   std::sort(record.phase_signature.begin(), record.phase_signature.end());
+  const auto [active_signature, active_info] = Thermochimica::getActiveSolutionSpecies();
+  if (active_info == 0)
+    record.active_species_signature = active_signature;
+  const auto [assemblage_token, token_info] = Thermochimica::getEquilibriumAssemblageToken();
+  if (token_info == 0)
+    record.assemblage_token = assemblage_token;
   record.total_scale = total_scale;
+  if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
+  {
+    if (active_info == 0 && token_info == 0)
+      buildKktSensitivity(record, row, key);
+    else
+      ++_header->sensitivity_failures;
+  }
+  _worker_sensitivity_bytes +=
+      (record.output_jacobian.capacity() + record.metric.capacity() +
+       record.state_log_amounts.capacity() + record.state_jacobian.capacity()) * sizeof(Real);
   if (reinit && _configuration->warm_start == ThermochimicaConfiguration::WarmStart::NEAREST_CACHED)
     record.reinit = *reinit;
   _cache_records.push_back(std::move(record));

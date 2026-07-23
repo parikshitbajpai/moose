@@ -37,6 +37,12 @@ struct ThermochimicaConfiguration
     ADAPTIVE
   };
 
+  enum class SurrogateModel
+  {
+    LOCAL_IDW,
+    KKT_LINEAR
+  };
+
   enum class PhaseSelection
   {
     NONE,
@@ -188,6 +194,7 @@ struct ThermochimicaConfiguration
   EvaluationLocation location = EvaluationLocation::NODAL;
   WarmStart warm_start = WarmStart::PREVIOUS_SOLVE;
   Acceleration acceleration = Acceleration::EXACT;
+  SurrogateModel surrogate_model = SurrogateModel::LOCAL_IDW;
   unsigned int batch_size = 32;
   bool report_performance = false;
   unsigned int cache_max_entries = 10000;

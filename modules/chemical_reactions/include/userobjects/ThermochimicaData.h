@@ -16,6 +16,7 @@
 #include "libmesh/dof_object.h"
 
 #include <memory>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <sys/types.h>
@@ -77,8 +78,20 @@ protected:
     unsigned int cold_retries = 0;
     unsigned int cache_entries = 0;
     unsigned int cache_saturated = 0;
+    unsigned int sensitivity_successes = 0;
+    unsigned int sensitivity_failures = 0;
+    unsigned int sensitivity_condition_rejections = 0;
+    unsigned int sensitivity_residual_rejections = 0;
+    unsigned int unsupported_model_rejections = 0;
+    unsigned int state_restore_failures = 0;
+    unsigned int complementarity_rejections = 0;
+    unsigned int linear_retrieves = 0;
+    unsigned int ellipsoid_growths = 0;
+    unsigned int ellipsoid_shrinks = 0;
+    std::size_t sensitivity_bytes = 0;
     int worker_status = 0;
     Real solve_seconds = 0;
+    Real sensitivity_seconds = 0;
   };
 
   enum class Command : unsigned int
@@ -95,10 +108,19 @@ protected:
 #ifdef THERMOCHIMICA_ENABLED
   struct CacheRecord
   {
+    std::vector<Real> coordinates;
     std::vector<Real> outputs;
     std::vector<int> phase_signature;
+    std::vector<int> active_species_signature;
+    std::vector<int> assemblage_token;
     Real total_scale = 1.0;
     std::optional<Thermochimica::ReinitializationData> reinit;
+    std::vector<Real> output_jacobian;
+    std::vector<Real> metric;
+    std::vector<Real> state_log_amounts;
+    std::vector<Real> state_jacobian;
+    Real sensitivity_rcond = 0.0;
+    bool sensitivity_available = false;
   };
 
   struct OutputEvaluationContext
@@ -147,6 +169,17 @@ protected:
   void storePreviousState(dof_id_type id);
   bool normalizedInput(unsigned int row, std::vector<Real> & key, Real & total_scale) const;
   bool predictRow(unsigned int row, const std::vector<Real> & key, Real total_scale, bool & audit);
+  bool
+  predictKktRow(unsigned int row, const std::vector<Real> & key, Real total_scale, bool & audit);
+  int evaluateCurrentOutputs(unsigned int row, Real * result) const;
+  bool buildKktSensitivity(CacheRecord & record, unsigned int row, const std::vector<Real> & key);
+  bool updateKktEllipsoid(const std::vector<Real> & key,
+                          Real total_scale,
+                          const std::vector<int> & phase_signature,
+                          const Real * exact_outputs);
+  void shrinkAuditedEllipsoid(const std::vector<Real> & key);
+  std::vector<Real> physicalInputDirection(const std::vector<Real> & internal_inputs,
+                                           unsigned int coordinate) const;
   void cacheExactRow(unsigned int row,
                      const std::vector<Real> & key,
                      Real total_scale,
@@ -159,7 +192,8 @@ protected:
   void publishRow(unsigned int row);
 
   InputSource inputSource(const std::string & value);
-  Real inputValue(const InputSource & source, bool nodal, const libMesh::Elem * elem = nullptr) const;
+  Real
+  inputValue(const InputSource & source, bool nodal, const libMesh::Elem * elem = nullptr) const;
   bool ownsEntity(dof_id_type id) const;
   bool includesNode(const libMesh::Node & node) const;
   bool includesElement(const libMesh::Elem & elem) const;
@@ -204,8 +238,20 @@ protected:
   unsigned long _nearest_warm_starts = 0;
   unsigned long _cold_retries = 0;
   unsigned long _cache_entries = 0;
+  unsigned long _sensitivity_successes = 0;
+  unsigned long _sensitivity_failures = 0;
+  unsigned long _sensitivity_condition_rejections = 0;
+  unsigned long _sensitivity_residual_rejections = 0;
+  unsigned long _unsupported_model_rejections = 0;
+  unsigned long _state_restore_failures = 0;
+  unsigned long _complementarity_rejections = 0;
+  unsigned long _linear_retrieves = 0;
+  unsigned long _ellipsoid_growths = 0;
+  unsigned long _ellipsoid_shrinks = 0;
+  std::size_t _sensitivity_bytes = 0;
   bool _cache_saturated = false;
   Real _solve_seconds = 0;
+  Real _sensitivity_seconds = 0;
   Real _packing_seconds = 0;
   Real _ipc_seconds = 0;
 
@@ -219,7 +265,9 @@ protected:
   std::unique_ptr<ValueCache<std::size_t>> _cache;
   std::vector<CacheRecord> _cache_records;
   unsigned long _worker_accepted_predictions = 0;
+  std::size_t _worker_sensitivity_bytes = 0;
   std::vector<Real> _audit_prediction;
+  std::size_t _audit_record = std::numeric_limits<std::size_t>::max();
 #endif
   bool _worker_has_previous_solve = false;
 };

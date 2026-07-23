@@ -95,6 +95,9 @@ ChemicalCompositionAction::validParams()
       "Exact Thermochimica warm-start strategy");
   params.addParam<MooseEnum>(
       "acceleration", MooseEnum("exact adaptive", "exact"), "Equilibrium evaluation strategy");
+  params.addParam<MooseEnum>("surrogate_model",
+                             MooseEnum("local_idw kkt_linear", "local_idw"),
+                             "Adaptive prediction model");
   params.addRangeCheckedParam<unsigned int>(
       "batch_size", 32, "batch_size > 0", "Number of states sent to each worker request");
   params.addRangeCheckedParam<unsigned int>("cache_max_entries",
@@ -192,6 +195,9 @@ ChemicalCompositionAction::initializeConfiguration()
   config.acceleration = getParam<MooseEnum>("acceleration") == "adaptive"
                             ? ThermochimicaConfiguration::Acceleration::ADAPTIVE
                             : ThermochimicaConfiguration::Acceleration::EXACT;
+  config.surrogate_model = getParam<MooseEnum>("surrogate_model") == "kkt_linear"
+                               ? ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR
+                               : ThermochimicaConfiguration::SurrogateModel::LOCAL_IDW;
   config.composition_is_fraction = config.composition_unit == "mole fraction" ||
                                    config.composition_unit == "atom fraction" ||
                                    config.composition_unit == "mass fraction";
