@@ -32,3 +32,6 @@ unit/**/*.C              merge=clang-format
 unit/**/*.h              merge=clang-format
 tutorials/**/*.C         merge=clang-format
 tutorials/**/*.h         merge=clang-format
+
+# ChemSage fixed-format database: preserve the validated CRLF byte stream.
+modules/chemical_reactions/examples/MSRE/MSTDB-TC_V3.0_Fluorides_No_Functions_8-2.dat -text -diff

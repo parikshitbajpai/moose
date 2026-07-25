@@ -4,6 +4,10 @@ This suite measures the cost and accuracy of the adaptive Thermochimica equilibr
 uses only databases distributed with the Chemical Reactions module and does not modify or persist
 worker caches.
 
+The driver verifies the SHA-256 digest of each database required by the selected studies before
+launching MOOSE. The MSTDB fluoride database is tracked explicitly despite the repository-wide
+`*.dat` ignore rule so a recursive clone contains every production input.
+
 The detailed physical definitions, study-to-case mapping, production launch inventory, expected
 interpretation, and operator checklist are in
 [`BENCHMARK_INVENTORY.md`](BENCHMARK_INVENTORY.md).

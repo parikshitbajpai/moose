@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import hashlib
 import json
 import math
 import os
@@ -35,6 +36,30 @@ CASE_FILES = {
     "lif_low_temperature": CASES / "lif_low_temperature.i",
     "flibe_msfl": CASES / "flibe_msfl.i",
 }
+
+CASE_DATABASES = {
+    "binary_smooth": (
+        ROOT.parent.parent / "test/tests/thermochimica/Kaye_NobleMetals.dat",
+        "49afab992d4e43522fdb60eda8f875654411523123080553555e12d7cb817829",
+    ),
+    "binary_boundary": (
+        ROOT.parent.parent / "test/tests/thermochimica/Kaye_NobleMetals.dat",
+        "49afab992d4e43522fdb60eda8f875654411523123080553555e12d7cb817829",
+    ),
+}
+FLUORIDE_DATABASE = (
+    ROOT.parent.parent / "examples/MSRE/MSTDB-TC_V3.0_Fluorides_No_Functions_8-2.dat",
+    "8195b2d56b44c8172ffa99386205fe77edcecf52b0360f30f5f08e4023436fa7",
+)
+for _case in (
+    "multielement_fluoride",
+    "multielement_heat_capacity",
+    "fluoride_dimension_trace",
+    "lif_excess_f",
+    "lif_low_temperature",
+    "flibe_msfl",
+):
+    CASE_DATABASES[_case] = FLUORIDE_DATABASE
 
 CASE_OUTPUTS = {
     "binary_smooth": [
@@ -219,6 +244,27 @@ def load_manifest(tier: str) -> dict[str, Any]:
     if not isinstance(manifest.get("studies"), dict):
         raise ValueError(f"Manifest {tier}.json does not define a studies object")
     return manifest
+
+
+def validate_case_databases(cases: set[str]) -> None:
+    """Require the exact database bytes used to qualify each selected benchmark case."""
+    checked = set()
+    for case in sorted(cases):
+        path, expected = CASE_DATABASES[case]
+        if path in checked:
+            continue
+        checked.add(path)
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Required Thermochimica database is missing: {path}. "
+                "Update the benchmark branch and submodules before running."
+            )
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != expected:
+            raise ValueError(
+                f"Thermochimica database checksum mismatch for {path}: "
+                f"expected {expected}, found {actual}. Restore the file from Git before running."
+            )
 
 
 def slug(value: Any) -> str:
@@ -713,6 +759,12 @@ def run_suite(args: argparse.Namespace) -> Path:
     missing = [name for name in requested if name not in available]
     if missing:
         raise ValueError(f"Unknown {args.tier} study: {', '.join(missing)}")
+    selected_cases = {
+        config["case"]
+        for study_name in requested
+        for config in expand_study(study_name, available[study_name])
+    }
+    validate_case_databases(selected_cases)
 
     if args.output:
         output = Path(args.output).resolve()

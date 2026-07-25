@@ -311,6 +311,7 @@ and parallel efficiency separately.
 - [ ] Clone `agent/adaptive-thermochimica` with `--recurse-submodules`.
 - [ ] Confirm the parent revision recorded in `metadata.json` is the intended revision.
 - [ ] Confirm the Thermochimica submodule is at the intended sensitivity commit.
+- [ ] Confirm the tracked MSTDB database passes the benchmark driver's SHA-256 preflight.
 - [ ] Confirm `git status --porcelain` is empty, or archive the intentional diff.
 - [ ] Activate the same named conda environment on every allocated node.
 - [ ] Build `modules/chemical_reactions/chemical_reactions-opt`.
