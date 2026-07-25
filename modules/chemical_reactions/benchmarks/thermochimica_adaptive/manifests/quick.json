@@ -21,8 +21,24 @@
       "relative_tolerance": 0.0001,
       "values": [2, 5, 9, 13, 17, 22]
     },
-    "lif_qualification": {
-      "case": ["lif_excess_f", "lif_low_temperature", "flibe_msfl"],
+    "fluoride_state_isolation": {
+      "case": "lif_excess_f",
+      "axis": "surrogate_model",
+      "mesh": 200,
+      "relative_tolerance": 0.0001,
+      "audit_interval": 1,
+      "values": ["local_idw", "kkt_linear"]
+    },
+    "inactive_msfl_fallback": {
+      "case": "lif_low_temperature",
+      "axis": "surrogate_model",
+      "mesh": 200,
+      "relative_tolerance": 0.0001,
+      "audit_interval": 1,
+      "values": ["local_idw", "kkt_linear"]
+    },
+    "active_subq_fallback": {
+      "case": "flibe_msfl",
       "axis": "surrogate_model",
       "mesh": 200,
       "relative_tolerance": 0.0001,
@@ -44,20 +60,11 @@
       "values": ["local_idw", "kkt_linear"]
     },
     "algorithm_comparison": {
-      "case": [
-        "binary_smooth",
-        "binary_boundary",
-        "lif_excess_f",
-        "lif_low_temperature",
-        "flibe_msfl"
-      ],
+      "case": ["binary_smooth", "binary_boundary"],
       "axis": "relative_tolerance",
       "mesh": {
         "binary_smooth": 500,
-        "binary_boundary": 500,
-        "lif_excess_f": 100,
-        "lif_low_temperature": 100,
-        "flibe_msfl": 50
+        "binary_boundary": 500
       },
       "values": [0.01, 0.0001],
       "audit_interval": 10,

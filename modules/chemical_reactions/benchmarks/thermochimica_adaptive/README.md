@@ -4,6 +4,10 @@ This suite measures the cost and accuracy of the adaptive Thermochimica equilibr
 uses only databases distributed with the Chemical Reactions module and does not modify or persist
 worker caches.
 
+The detailed physical definitions, study-to-case mapping, production launch inventory, expected
+interpretation, and operator checklist are in
+[`BENCHMARK_INVENTORY.md`](BENCHMARK_INVENTORY.md).
+
 The mathematical definition, decision flowcharts, safeguards, and limitations of the implemented
 algorithm are documented in `thermochimica_adaptive_acceleration.tex`. Build the technical note with
 `latexmk -pdf thermochimica_adaptive_acceleration.tex` from this directory.
@@ -13,10 +17,10 @@ sensitivity predictor and its ellipsoid metric. The driver records sensitivity c
 factorization failures, linear retrieves, ellipsoid updates, and Jacobian/metric storage alongside
 the original `local_idw` telemetry.
 
-The core and qualification input problems are:
+The core performance and safety-regression input problems are:
 
-- `binary_smooth.i`: a single-phase Mo-Ru trajectory for interpolation and scaling studies;
-- `binary_boundary.i`: a wider Mo-Ru trajectory crossing the BCC/HCP phase boundary; and
+- `binary_smooth.i`: a fixed-HCP Mo-Ru trajectory for interpolation and scaling studies;
+- `binary_boundary.i`: a wider Mo-Ru trajectory crossing HCP, liquid, and BCC regimes;
 - `multielement_fluoride.i`: the representative MSRE-derived 17/22-element chemistry;
 - `fluoride_dimension_trace.i`: a fixed LiF carrier with trace additions for controlled dimension
   scaling;
@@ -24,10 +28,11 @@ The core and qualification input problems are:
 - `lif_low_temperature.i`: near-stoichiometric binary Li-F with inactive MSFL; and
 - `flibe_msfl.i`: a charge-balanced Li-Be-F carrier with active `SUBQ` MSFL.
 
-The MSTDB database represents near-stoichiometric binary LiF with pure condensed phases, so active
-MSFL qualification uses FLiBe rather than labeling a non-MSFL binary state as molten salt. The
-current nested MSRE element subsets are not used as a pure dimension study because removing cations
-while retaining the complete fluorine inventory changes both stoichiometry and phase behavior.
+The three Li-F/FLiBe inputs are safety regressions, not phase-model qualification tests. The MSTDB
+database represents near-stoichiometric binary LiF with pure condensed phases, so the active-MSFL
+fallback case uses FLiBe rather than labeling a non-MSFL binary state as molten salt. The current
+nested MSRE element subsets are not used as a pure dimension study because removing cations while
+retaining the complete fluorine inventory changes both stoichiometry and phase behavior.
 
 `multielement_heat_capacity.i` is an include-based variant used only by the optional full-tier
 `output_cost` study. It isolates the additional equilibria required by heat-capacity output from
@@ -64,9 +69,10 @@ the publication/performance tier. The full tier can take hours. Select one study
 `mpiexec` by default; select a different launcher with `--mpiexec`.
 
 Use `--study algorithm_comparison` for the balanced exact, `local_idw`, and `kkt_linear` matrix
-used by the optimization-style visualizations. Each surrogate sees the same cases, tolerances,
-mesh sizes, warm start, and repetition count. The quick matrix uses reduced Li-F/FLiBe meshes so
-it can be run independently of the expensive chemical-dimension study:
+used by the optimization-style visualizations. It is restricted to the fixed-HCP and
+HCP-liquid-BCC Mo-Ru trajectories, where the `QKTO` model is eligible for KKT retrieval. Fluoride
+state-isolation and unsupported-model fallback are reported by separate safety studies:
+`fluoride_state_isolation`, `inactive_msfl_fallback`, and `active_subq_fallback`.
 
 ```bash
 conda run -n moose python3 benchmark.py run \
@@ -105,7 +111,8 @@ The balanced comparison produces:
 - `algorithm_work_precision`: query time and speedup versus maximum normalized error;
 - `algorithm_speedup_heatmap`: median valid speedup by problem and surrogate;
 - `algorithm_stage_learning`: exact-call fraction and cache growth from initial to query stage; and
-- `phase_boundary_trajectory`: exact BCC/HCP fractions and surrogate error along the boundary path.
+- `phase_boundary_trajectory`: exact HCP/liquid/BCC fractions and surrogate error along the
+  boundary path.
 
 The profiles are correctness-gated. An adaptive result is valid only when its sampled maximum
 error is within the requested relative tolerance and both its audit-failure and state-restoration

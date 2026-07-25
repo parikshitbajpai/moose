@@ -21,8 +21,24 @@
       "relative_tolerance": 0.0001,
       "values": [2, 5, 9, 13, 17, 22]
     },
-    "lif_qualification": {
-      "case": ["lif_excess_f", "lif_low_temperature", "flibe_msfl"],
+    "fluoride_state_isolation": {
+      "case": "lif_excess_f",
+      "axis": "surrogate_model",
+      "mesh": 2000,
+      "relative_tolerance": 0.0001,
+      "audit_interval": 1,
+      "values": ["local_idw", "kkt_linear"]
+    },
+    "inactive_msfl_fallback": {
+      "case": "lif_low_temperature",
+      "axis": "surrogate_model",
+      "mesh": 2000,
+      "relative_tolerance": 0.0001,
+      "audit_interval": 1,
+      "values": ["local_idw", "kkt_linear"]
+    },
+    "active_subq_fallback": {
+      "case": "flibe_msfl",
       "axis": "surrogate_model",
       "mesh": 2000,
       "relative_tolerance": 0.0001,
@@ -45,25 +61,11 @@
       "values": ["local_idw", "kkt_linear"]
     },
     "algorithm_comparison": {
-      "case": [
-        "binary_smooth",
-        "binary_boundary",
-        "lif_excess_f",
-        "lif_low_temperature",
-        "flibe_msfl",
-        "multielement_fluoride"
-      ],
+      "case": ["binary_smooth", "binary_boundary"],
       "axis": "relative_tolerance",
       "mesh": {
         "binary_smooth": 5000,
-        "binary_boundary": 5000,
-        "lif_excess_f": 1000,
-        "lif_low_temperature": 1000,
-        "flibe_msfl": 500,
-        "multielement_fluoride": 500
-      },
-      "chemical_elements": {
-        "multielement_fluoride": 17
+        "binary_boundary": 5000
       },
       "values": [0.01, 0.001, 0.0001, 0.00001],
       "audit_interval": 10,

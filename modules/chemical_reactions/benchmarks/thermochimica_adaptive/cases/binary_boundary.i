@@ -39,6 +39,27 @@
           phase = HCPN
           unit = mole_fraction
         []
+        [fcc_amount]
+          phase = FCCN
+        []
+        [fcc_fraction]
+          phase = FCCN
+          unit = mole_fraction
+        []
+        [liquid_amount]
+          phase = LiqN
+        []
+        [liquid_fraction]
+          phase = LiqN
+          unit = mole_fraction
+        []
+        [sigma_amount]
+          phase = sigma
+        []
+        [sigma_fraction]
+          phase = sigma
+          unit = mole_fraction
+        []
       []
       [ElementPotentials]
         [mo_potential]
@@ -84,7 +105,7 @@
 [VectorPostprocessors]
   [samples]
     type = ElementValueSampler
-    variable = 'Mo Ru bcc_amount hcp_amount bcc_fraction hcp_fraction mo_potential system_gibbs'
+    variable = 'Mo Ru bcc_amount hcp_amount bcc_fraction hcp_fraction fcc_amount fcc_fraction liquid_amount liquid_fraction sigma_amount sigma_fraction mo_potential system_gibbs'
     sort_by = id
     execute_on = timestep_end
   []

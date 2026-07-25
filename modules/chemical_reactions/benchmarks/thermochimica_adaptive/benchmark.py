@@ -50,6 +50,12 @@ CASE_OUTPUTS = {
         "hcp_amount",
         "bcc_fraction",
         "hcp_fraction",
+        "fcc_amount",
+        "fcc_fraction",
+        "liquid_amount",
+        "liquid_fraction",
+        "sigma_amount",
+        "sigma_fraction",
         "mo_potential",
         "system_gibbs",
     ],
@@ -1330,16 +1336,16 @@ def plot_results(directory: Path) -> None:
                 exact_samples = read_samples(exact_path)
                 coordinate = [row.get("x", row.get("id", 0.0)) for row in exact_samples]
                 figure, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-                axes[0].plot(
-                    coordinate,
-                    [row["bcc_fraction"] for row in exact_samples],
-                    label="exact BCC",
-                )
-                axes[0].plot(
-                    coordinate,
-                    [row["hcp_fraction"] for row in exact_samples],
-                    label="exact HCP",
-                )
+                for output, label in (
+                    ("bcc_fraction", "BCC"),
+                    ("hcp_fraction", "HCP"),
+                    ("fcc_fraction", "FCC"),
+                    ("liquid_fraction", "liquid"),
+                    ("sigma_fraction", "sigma"),
+                ):
+                    values = [row[output] for row in exact_samples]
+                    if any(value > 1e-12 for value in values):
+                        axes[0].plot(coordinate, values, label=f"exact {label}")
                 for row in adaptive_boundary:
                     sample_path = Path(row["sample_file"])
                     if not sample_path.is_file():
