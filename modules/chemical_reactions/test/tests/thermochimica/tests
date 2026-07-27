@@ -526,11 +526,11 @@
   [kkt_linear_active_subq_fallback]
     type = RunApp
     input = ../../../benchmarks/thermochimica_adaptive/cases/flibe_msfl.i
-    cli_args = 'Mesh/gen/nx=20 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear Outputs/csv=false'
-    expect_out = 'states=20.*exact_solves=20.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*.*state_restore_failures=0'
+    cli_args = 'Mesh/gen/nx=20 Executioner/num_steps=1 ChemicalComposition/thermo/surrogate_model=kkt_linear ChemicalComposition/thermo/warm_start=none Outputs/csv=false'
+    expect_out = 'states=20.*exact_solves=20.*warm_starts=0.*audit_failures=0.*unsupported_model_rejections=[1-9][0-9]*.*state_restore_failures=0'
     design = 'ChemicalCompositionAction.md ThermochimicaData.md'
     issues = '#22711'
-    requirement = 'Active SUBQ states that do not pass upstream sensitivity qualification shall remain exact'
+    requirement = 'Active SUBQ states that do not pass upstream sensitivity qualification shall remain exact without depending on a previous-solve reinitialization'
     capabilities = 'thermochimica'
   []
 

@@ -421,7 +421,7 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
                     "neighbors": int(study.get("neighbors", 0)),
                     "cache_capacity": 10000,
                     "audit_interval": int(study.get("audit_interval", 100)),
-                    "warm_start": "previous_solve",
+                    "warm_start": str(study.get("warm_start", "previous_solve")),
                     "surrogate_model": str(model),
                     "threads": 1,
                     "ranks": 1,

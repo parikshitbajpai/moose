@@ -41,7 +41,8 @@
     "active_subq_fallback": {
       "case": "flibe_msfl",
       "axis": "surrogate_model",
-      "mesh": 2000,
+      "mesh": 20,
+      "warm_start": "none",
       "relative_tolerance": 0.0001,
       "audit_interval": 1,
       "values": ["local_idw", "kkt_linear"]

@@ -43,6 +43,10 @@ fallback case uses FLiBe rather than labeling a non-MSFL binary state as molten 
 nested MSRE element subsets are not used as a pure dimension study because removing cations while
 retaining the complete fluorine inventory changes both stoichiometry and phase behavior.
 
+The `active_subq_fallback` study intentionally uses 20 states with `warm_start=none`. It isolates
+unsupported-`SUBQ` exact fallback from platform-sensitive previous-solve reinitialization and is
+not a mesh-scaling or warm-start performance study.
+
 `multielement_heat_capacity.i` is an include-based variant used only by the optional full-tier
 `output_cost` study. It isolates the additional equilibria required by heat-capacity output from
 the core acceleration timings.
