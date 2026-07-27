@@ -113,11 +113,12 @@ INL HPC uses a versioned MOOSE development container. Follow the
 and derive the required module version from the checked-out source:
 
 ```bash
-cd /scratch/$USER/projects/tc_cache
+cd /home/bajpp/projects/tc_cache
 module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$(./scripts/versioner.py moose-dev)"
-module load "moose-dev-openmpi/${MOOSE_DEV_VERSION}"
+MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
+module load "moose-dev-${MOOSE_DEV_MPI}/${MOOSE_DEV_VERSION}"
 moose-dev-shell
 
 cd modules/chemical_reactions
@@ -140,11 +141,11 @@ and scratch paths:
 
 ```bash
 sbatch --wckey=YOUR_PROJECT \
-  --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
+  --export=ALL,TC_RESULTS=/scratch/$USER/tc-results \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_full_array.slurm
 
 sbatch --wckey=YOUR_PROJECT \
-  --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
+  --export=ALL,TC_RESULTS=/scratch/$USER/tc-results \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_parallel.slurm
 ```
 
@@ -157,13 +158,17 @@ moose-dev-exec python3 \
   plot --input /scratch/$USER/tc-results/RESULT_DIRECTORY
 ```
 
-Do not substitute an unversioned `moose-dev-openmpi` module. The parallel script deliberately uses
+The launchers default to Teton's `moose-dev-mpich` module. Set `MOOSE_DEV_MPI=openmpi` when using a
+cluster that provides the OpenMPI container, and never substitute an unversioned module. The
+parallel script deliberately uses
 `mpiexec -n N inl_moose_exec.sh chemical_reactions-opt ...`, where the bridge script invokes the
 module-provided `moose-dev-exec` alias or function. The bridge is necessary because Python
 subprocesses cannot execute shell aliases directly, and it preserves the containerized MPI command
 ordering required by INL. The Slurm launchers capture the alias while Lmod is available and perform
 a container preflight before starting a study. A study with no successful configurations exits
 nonzero instead of leaving apparently successful header-only result files.
+The Teton launchers default `TC_REPO` to `/home/bajpp/projects/tc_cache`. Slurm standard output and
+error files are written beneath the benchmark directory in `out/` and `err/`, respectively.
 The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
 CPUs does not accelerate them. The parallel study requests 16 allocated CPUs and 64 GiB. Retain
 `--exclusive` for publication timing, but remove it for inexpensive shakedown runs if node sharing

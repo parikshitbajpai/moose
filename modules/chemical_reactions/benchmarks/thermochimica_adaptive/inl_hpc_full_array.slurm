@@ -8,18 +8,20 @@
 #SBATCH --mem=32G
 #SBATCH --time=72:00:00
 #SBATCH --exclusive
-#SBATCH --output=tc-adaptive-%A_%a.out
-#SBATCH --error=tc-adaptive-%A_%a.err
+#SBATCH --output=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/out/tc-adaptive-%A_%a.out
+#SBATCH --error=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/err/tc-adaptive-%A_%a.err
 
 set -euo pipefail
 
-: "${TC_REPO:?Set TC_REPO to the repository root}"
+TC_REPO="${TC_REPO:-/home/bajpp/projects/tc_cache}"
 : "${TC_RESULTS:?Set TC_RESULTS to persistent scratch storage}"
+MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
+MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
 
 module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
-module load "moose-dev-openmpi/${MOOSE_DEV_VERSION}"
+module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
 export MOOSE_DEV_VERSION
 
 # Python cannot execute the module-provided shell alias directly. Capture its
@@ -27,7 +29,7 @@ export MOOSE_DEV_VERSION
 # the executable bridge used by every benchmark subprocess.
 shopt -s expand_aliases
 if ! type moose-dev-exec >/dev/null 2>&1; then
-  echo "moose-dev-exec was not defined by moose-dev-openmpi/${MOOSE_DEV_VERSION}" >&2
+  echo "moose-dev-exec was not defined by ${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}" >&2
   exit 1
 fi
 if declare -F moose-dev-exec >/dev/null; then
