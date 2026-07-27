@@ -4,6 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=4
 #SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
 #SBATCH --time=72:00:00
 #SBATCH --exclusive
 #SBATCH --output=tc-parallel-%j.out
@@ -18,10 +19,12 @@ module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "moose-dev-openmpi/${MOOSE_DEV_VERSION}"
+export MOOSE_DEV_VERSION
 
 OUTPUT="${TC_RESULTS}/full_parallel_${SLURM_JOB_ID}"
 DRIVER="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py"
 EXECUTABLE="${TC_REPO}/modules/chemical_reactions/chemical_reactions-opt"
+CONTAINER_EXEC="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_moose_exec.sh"
 
 mkdir -p "${OUTPUT}"
 printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
@@ -33,7 +36,7 @@ python3 "${DRIVER}" run \
   --tier full \
   --study parallel \
   --exe "${EXECUTABLE}" \
-  --exec-prefix moose-dev-exec \
+  --exec-prefix "${CONTAINER_EXEC}" \
   --mpiexec mpiexec \
   --skip-plots \
   --output "${OUTPUT}"

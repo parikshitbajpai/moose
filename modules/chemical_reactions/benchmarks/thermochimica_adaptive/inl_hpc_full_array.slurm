@@ -5,6 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
+#SBATCH --mem=32G
 #SBATCH --time=72:00:00
 #SBATCH --exclusive
 #SBATCH --output=tc-adaptive-%A_%a.out
@@ -19,6 +20,7 @@ module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "moose-dev-openmpi/${MOOSE_DEV_VERSION}"
+export MOOSE_DEV_VERSION
 
 STUDIES=(
   tolerance
@@ -41,6 +43,7 @@ STUDY="${STUDIES[$SLURM_ARRAY_TASK_ID]}"
 OUTPUT="${TC_RESULTS}/full_${STUDY}_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 DRIVER="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py"
 EXECUTABLE="${TC_REPO}/modules/chemical_reactions/chemical_reactions-opt"
+CONTAINER_EXEC="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_moose_exec.sh"
 
 mkdir -p "${OUTPUT}"
 printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
@@ -52,7 +55,7 @@ python3 "${DRIVER}" run \
   --tier full \
   --study "${STUDY}" \
   --exe "${EXECUTABLE}" \
-  --exec-prefix moose-dev-exec \
+  --exec-prefix "${CONTAINER_EXEC}" \
   --mpiexec mpiexec \
   --skip-plots \
   --output "${OUTPUT}"

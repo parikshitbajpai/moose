@@ -139,11 +139,11 @@ same container version automatically. Submit them from a login node with site-ap
 and scratch paths:
 
 ```bash
-sbatch --account=YOUR_PROJECT \
+sbatch --wckey=YOUR_PROJECT \
   --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_full_array.slurm
 
-sbatch --account=YOUR_PROJECT \
+sbatch --wckey=YOUR_PROJECT \
   --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_parallel.slurm
 ```
@@ -158,7 +158,14 @@ moose-dev-exec python3 \
 ```
 
 Do not substitute an unversioned `moose-dev-openmpi` module. The parallel script deliberately uses
-`mpiexec -n N moose-dev-exec chemical_reactions-opt ...`, as required for containerized MPI jobs.
+`mpiexec -n N inl_moose_exec.sh chemical_reactions-opt ...`, where the bridge script invokes the
+module-provided `moose-dev-exec` alias or function. The bridge is necessary because Python
+subprocesses cannot execute shell aliases directly, and it preserves the containerized MPI command
+ordering required by INL.
+The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
+CPUs does not accelerate them. The parallel study requests 16 allocated CPUs and 64 GiB. Retain
+`--exclusive` for publication timing, but remove it for inexpensive shakedown runs if node sharing
+is acceptable. After a pilot, inspect `MaxRSS` with `sacct` and adjust memory with a safety margin.
 
 ## Results
 
