@@ -892,6 +892,10 @@ def run_suite(args: argparse.Namespace) -> Path:
     with (output / "metadata.json").open("w", encoding="utf-8") as stream:
         json.dump(metadata(executable, args.tier, commands), stream, indent=2)
         stream.write("\n")
+    if not rows:
+        raise RuntimeError(
+            f"No benchmark configuration completed successfully; see {output / 'failures.csv'}"
+        )
     if not args.skip_plots:
         plot_results(output)
     return output

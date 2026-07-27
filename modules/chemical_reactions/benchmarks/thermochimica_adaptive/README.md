@@ -161,7 +161,9 @@ Do not substitute an unversioned `moose-dev-openmpi` module. The parallel script
 `mpiexec -n N inl_moose_exec.sh chemical_reactions-opt ...`, where the bridge script invokes the
 module-provided `moose-dev-exec` alias or function. The bridge is necessary because Python
 subprocesses cannot execute shell aliases directly, and it preserves the containerized MPI command
-ordering required by INL.
+ordering required by INL. The Slurm launchers capture the alias while Lmod is available and perform
+a container preflight before starting a study. A study with no successful configurations exits
+nonzero instead of leaving apparently successful header-only result files.
 The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
 CPUs does not accelerate them. The parallel study requests 16 allocated CPUs and 64 GiB. Retain
 `--exclusive` for publication timing, but remove it for inexpensive shakedown runs if node sharing
