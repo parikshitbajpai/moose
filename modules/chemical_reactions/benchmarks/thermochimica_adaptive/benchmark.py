@@ -462,6 +462,7 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
 def command_for(
     executable: Path,
     mpiexec: str,
+    exec_prefix: str | None,
     config: dict[str, Any],
     mode: str,
     file_base: Path,
@@ -485,6 +486,8 @@ def command_for(
         command.append(
             f"ChemicalComposition/thermo/elements={ELEMENT_SETS[config['chemical_elements']]}"
         )
+    if exec_prefix:
+        command = [exec_prefix] + command
     if config["ranks"] > 1:
         command = [mpiexec, "-n", str(config["ranks"])] + command
     return command
@@ -533,6 +536,7 @@ def latest_sample(file_base: Path) -> Path:
 def execute_once(
     executable: Path,
     mpiexec: str,
+    exec_prefix: str | None,
     tier: str,
     config: dict[str, Any],
     mode: str,
@@ -549,7 +553,7 @@ def execute_once(
         identity += "-prime"
     file_base = output / "raw" / identity
     log_path = output / "logs" / f"{identity}.log"
-    command = command_for(executable, mpiexec, config, mode, file_base)
+    command = command_for(executable, mpiexec, exec_prefix, config, mode, file_base)
     commands.append(command)
     wall_time, peak_rss, text = run_process(command, log_path)
     stages = parse_telemetry(text)
@@ -794,6 +798,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                         execute_once(
                             executable,
                             args.mpiexec,
+                            args.exec_prefix,
                             args.tier,
                             config,
                             "exact",
@@ -807,6 +812,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                         result = execute_once(
                             executable,
                             args.mpiexec,
+                            args.exec_prefix,
                             args.tier,
                             config,
                             "exact",
@@ -825,6 +831,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                     execute_once(
                         executable,
                         args.mpiexec,
+                        args.exec_prefix,
                         args.tier,
                         config,
                         "adaptive",
@@ -838,6 +845,7 @@ def run_suite(args: argparse.Namespace) -> Path:
                     result = execute_once(
                         executable,
                         args.mpiexec,
+                        args.exec_prefix,
                         args.tier,
                         config,
                         "adaptive",
@@ -884,7 +892,8 @@ def run_suite(args: argparse.Namespace) -> Path:
     with (output / "metadata.json").open("w", encoding="utf-8") as stream:
         json.dump(metadata(executable, args.tier, commands), stream, indent=2)
         stream.write("\n")
-    plot_results(output)
+    if not args.skip_plots:
+        plot_results(output)
     return output
 
 
@@ -1436,6 +1445,8 @@ def validate_suite(args: argparse.Namespace) -> None:
             repetitions=1,
             no_prime=True,
             mpiexec=args.mpiexec,
+            exec_prefix=args.exec_prefix,
+            skip_plots=False,
             fail_fast=True,
         )
         output = run_suite(run_args)
@@ -1488,6 +1499,15 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--no-prime", action="store_true", help="skip unmeasured priming runs")
     run.add_argument("--mpiexec", default="mpiexec", help="MPI launcher")
     run.add_argument(
+        "--exec-prefix",
+        help="command placed immediately before the MOOSE executable, such as moose-dev-exec",
+    )
+    run.add_argument(
+        "--skip-plots",
+        action="store_true",
+        help="defer plot generation for environments without matplotlib",
+    )
+    run.add_argument(
         "--fail-fast", action="store_true", help="stop instead of recording a failed configuration"
     )
 
@@ -1497,6 +1517,10 @@ def parser() -> argparse.ArgumentParser:
     validate = subparsers.add_parser("validate", help="run the smoke validation")
     validate.add_argument("--exe", required=True, help="Chemical Reactions MOOSE executable")
     validate.add_argument("--mpiexec", default="mpiexec", help="MPI launcher")
+    validate.add_argument(
+        "--exec-prefix",
+        help="command placed immediately before the MOOSE executable, such as moose-dev-exec",
+    )
     return command
 
 

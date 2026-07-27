@@ -106,6 +106,60 @@ conda run -n moose python3 benchmark.py run \
 The grids and repetition counts are stored in `manifests/smoke.json`, `quick.json`, and `full.json`.
 Changing a study does not require modifying the driver.
 
+## INL HPC containers
+
+INL HPC uses a versioned MOOSE development container. Follow the
+[official installation instructions](https://mooseframework.inl.gov/getting_started/installation/inl_hpc_install_moose.html)
+and derive the required module version from the checked-out source:
+
+```bash
+cd /scratch/$USER/projects/tc_cache
+module purge
+module load use.moose versioner
+MOOSE_DEV_VERSION="$(./scripts/versioner.py moose-dev)"
+module load "moose-dev-openmpi/${MOOSE_DEV_VERSION}"
+moose-dev-shell
+
+cd modules/chemical_reactions
+METHOD=opt make -j 8
+python3 ./run_tests --re thermochimica -j 4
+exit
+```
+
+Validate from the host with a single containerized command:
+
+```bash
+moose-dev-exec python3 \
+  modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py \
+  validate --exe modules/chemical_reactions/chemical_reactions-opt
+```
+
+The supplied `inl_hpc_full_array.slurm` and `inl_hpc_parallel.slurm` scripts resolve and record the
+same container version automatically. Submit them from a login node with site-appropriate account
+and scratch paths:
+
+```bash
+sbatch --account=YOUR_PROJECT \
+  --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
+  modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_full_array.slurm
+
+sbatch --account=YOUR_PROJECT \
+  --export=ALL,TC_REPO=/scratch/$USER/projects/tc_cache,TC_RESULTS=/scratch/$USER/tc-results \
+  modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_hpc_parallel.slurm
+```
+
+The batch scripts defer plotting so host Python does not need Matplotlib. Generate figures
+afterward inside the container:
+
+```bash
+moose-dev-exec python3 \
+  modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py \
+  plot --input /scratch/$USER/tc-results/RESULT_DIRECTORY
+```
+
+Do not substitute an unversioned `moose-dev-openmpi` module. The parallel script deliberately uses
+`mpiexec -n N moose-dev-exec chemical_reactions-opt ...`, as required for containerized MPI jobs.
+
 ## Results
 
 Each run produces:
