@@ -42,7 +42,7 @@ CONTAINER_EXEC="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_a
 mkdir -p "${OUTPUT}"
 printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
 module list > "${OUTPUT}/modules.txt" 2>&1
-"${CONTAINER_EXEC}" /bin/true
+mpiexec -n 2 "${CONTAINER_EXEC}" /bin/true
 
 # For MPI configurations the driver constructs the INL-required ordering:
 # mpiexec -n N moose-dev-exec chemical_reactions-opt ...
