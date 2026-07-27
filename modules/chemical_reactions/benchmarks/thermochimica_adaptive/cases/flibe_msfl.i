@@ -5,6 +5,10 @@
 # as the active-SUBQ qualification target and exact-fallback regression.
 [ChemicalComposition/thermo]
   elements := 'Li Be F'
+  # This is a SUBQ fallback regression, not a global phase-stability scan.
+  # Restricting the system avoids platform-sensitive searches over unrelated
+  # pure phases while retaining gas as the competing phase.
+  included_phases := 'MSFL gas_ideal'
 []
 
 [AuxKernels/temperature]

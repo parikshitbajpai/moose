@@ -45,7 +45,9 @@ retaining the complete fluorine inventory changes both stoichiometry and phase b
 
 The `active_subq_fallback` study intentionally uses 20 states with `warm_start=none`. It isolates
 unsupported-`SUBQ` exact fallback from platform-sensitive previous-solve reinitialization and is
-not a mesh-scaling or warm-start performance study.
+not a mesh-scaling or warm-start performance study. Its phase set is restricted to `MSFL` and
+`gas_ideal`, so unrelated pure-phase searches cannot obscure the active-`SUBQ` behavior being
+tested.
 
 `multielement_heat_capacity.i` is an include-based variant used only by the optional full-tier
 `output_cost` study. It isolates the additional equilibria required by heat-capacity output from
