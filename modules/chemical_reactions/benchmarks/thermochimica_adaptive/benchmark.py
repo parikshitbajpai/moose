@@ -48,8 +48,8 @@ CASE_DATABASES = {
     ),
 }
 FLUORIDE_DATABASE = (
-    ROOT.parent.parent / "examples/MSRE/MSTDB-TC_V3.0_Fluorides_No_Functions_8-2.dat",
-    "8195b2d56b44c8172ffa99386205fe77edcecf52b0360f30f5f08e4023436fa7",
+    ROOT / "MSDTC_41_fluorides.dat",
+    "1236d1a57bf0f12eea6e0e20d99747b299b60099fe3655e6ee46da6318704266",
 )
 for _case in (
     "multielement_fluoride",
@@ -119,9 +119,9 @@ ELEMENT_SETS = {
     2: "Li F",
     5: "Li Be F Zr U",
     9: "Li Be F Zr U Nd Ce La Cs",
-    13: "Li Be F Zr U Nd Ce La Cs I Pu Rb Sr",
-    17: "Li Be F Zr U Nd Ce La Cs I Pu Rb Sr Ba Pr Th Y",
-    22: "Li Be F Zr U Nd Ce La Cs I Pu Rb Sr Ba Pr Th Y Ni Fe Cr K Na",
+    13: "Li Be F Zr U Nd Ce La Cs I Pu K Sr",
+    17: "Li Be F Zr U Nd Ce La Cs I Pu K Sr Ba Pr Th Y",
+    22: "Li Be F Zr U Nd Ce La Cs I Pu K Sr Ba Pr Th Y Ni Fe Cr Na Xe",
 }
 
 INT_FIELDS = [
@@ -416,9 +416,9 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
                     "axis": study["axis"],
                     "axis_value": value,
                     "mesh": int(mesh),
-                    "chemical_elements": 22 if case.startswith("multielement_") or case == "fluoride_dimension_trace" else 2,
+                    "chemical_elements": 17 if case.startswith("multielement_") or case == "fluoride_dimension_trace" else 2,
                     "relative_tolerance": float(study.get("relative_tolerance", 1e-4)),
-                    "neighbors": 0,
+                    "neighbors": int(study.get("neighbors", 0)),
                     "cache_capacity": 10000,
                     "audit_interval": int(study.get("audit_interval", 100)),
                     "warm_start": "previous_solve",

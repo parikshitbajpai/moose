@@ -17,9 +17,10 @@
     "elements": {
       "case": "fluoride_dimension_trace",
       "axis": "chemical_elements",
-      "mesh": 500,
+      "mesh": 5,
+      "neighbors": 4,
       "relative_tolerance": 0.0001,
-      "values": [2, 5, 9, 13, 17, 22]
+      "values": [2, 5, 9, 13, 17]
     },
     "fluoride_state_isolation": {
       "case": "lif_excess_f",

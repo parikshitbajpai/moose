@@ -108,8 +108,10 @@ A lower hit rate than the fixed-HCP case is expected and desirable near phase tr
 
 | Property | Definition |
 | --- | --- |
-| Database | `MSTDB-TC_V3.0_Fluorides_No_Functions_8-2.dat` |
-| Available elements | Pu U Th Nd Pr Ce La Ba Cs I Zr Y Sr Rb Ni Fe Cr K Na F Be Li |
+| Database | `MSDTC_41_fluorides.dat` (MSTDB v4.1 fluorides) |
+| Database elements | Pu U Th Gd Sm Nd Pr Ce La Ba Cs Xe I Pd Rh Ru Tc Mo Zr Y Sr Kr Ni Fe Cr K Ar Na Ne F Be Li He |
+| Default representative elements | Pu U Th Nd Pr Ce La Ba Cs I Zr Y Sr K F Be Li |
+| Optional 22-element stress set | default set + Ni Fe Cr Na Xe |
 | Temperature | \(910+45q\) K |
 | Pressure | \(185000+45000q\) Pa |
 | Trajectory coordinate | \(q=x+0.0037t\) |
@@ -119,7 +121,9 @@ A lower hit rate than the fixed-HCP case is expected and desirable near phase tr
 
 The base composition comes from the bundled MSRE example. Major components include approximately
 38.77 moles F, 17.19 moles Li, 7.72 moles Be, 1.32 moles Zr, and 0.211 moles U, together with
-fission products and trace corrosion species.
+fission products and trace corrosion species. MSTDB v4.1 does not contain Rb, so the representative
+trajectory drops the old Rb inventory. The optional 22-element stress variant adds Xe at
+\(10^{-6}\) moles without interpreting the old Rb amount as a different element.
 
 This case measures representative GEM cost and `local_idw` behavior when temperature, pressure,
 and many elemental directions vary together. It is not a controlled dimension study.
@@ -127,6 +131,19 @@ and many elemental directions vary together. It is not a controlled dimension st
 The database includes `SUBQ`, `SUBL`, and other models that are not currently KKT-qualified.
 Consequently, `kkt_linear` is expected to fail closed to exact GEM. That outcome measures
 qualification coverage and fallback safety, not successful KKT acceleration.
+
+MSTDB v4.1 is substantially more expensive than the former v3 database for the higher-dimensional
+sets. The quick dimension study therefore uses 5 states and 4 neighbors; the full study uses 10
+states and 4 neighbors. Both stop at the exercised 17-element set. The full
+representative-fluoride model comparison uses 10 states, its parallel study uses 20, and the
+output-cost study uses 5. The large-state-count scaling studies remain assigned to the much
+cheaper Mo-Ru problem.
+
+For launch planning, a local one-element-mesh exact initial/query sequence took approximately
+0.4 s, 2.2 s, 6.3 s, 95-101 s, and 281 s for the 2-, 5-, 9-, 13-, and 17-element sets,
+respectively. The 22-element sequence was stopped after 952 s while still using a full CPU core.
+These measurements are hardware-specific qualification observations, not portable benchmark
+results; cluster timings must be measured on the target nodes.
 
 ### `fluoride_dimension_trace.i`: trace-element dimension scaling
 
@@ -147,14 +164,18 @@ trajectory. The nested element sets are:
 | 2 | Li F |
 | 5 | Li Be F Zr U |
 | 9 | previous set + Nd Ce La Cs |
-| 13 | previous set + I Pu Rb Sr |
+| 13 | previous set + I Pu K Sr |
 | 17 | previous set + Ba Pr Th Y |
-| 22 | previous set + Ni Fe Cr K Na |
+| 22 (manual stress case) | previous set + Ni Fe Cr Na Xe |
 
 This case measures the scaling of GEM, cache lookup, Jacobian storage, and local validation with
 thermochemical coordinate dimension. It is more controlled than removing elements from the MSRE
 composition, but it is not a purely algebraic experiment: trace elements may introduce additional
-candidate phases.
+candidate phases. K, the closest available alkali analogue, occupies the former Rb position in the
+13-element set. Trace Xe is added in the final group so K is not duplicated and the 22-element
+dimension remains available. A one-element-mesh 22-element exact run remained compute-bound for
+more than 15 minutes during local qualification, so this point is excluded from the default quick
+and full manifests. Run it only as an explicitly budgeted stress case.
 
 ### `lif_excess_f.i`: excess-F state-isolation reproducer
 
@@ -230,7 +251,7 @@ are reused within a study when their physical case and execution topology are id
 | --- | --- | --- | --- | ---: | ---: | --- |
 | `tolerance` | fixed-HCP Mo-Ru | 9 tolerances, \(10^{-2}\) to \(10^{-6}\) | IDW | 9 | 80 | Accuracy/cost tradeoff in one regime |
 | `mesh` | fixed-HCP Mo-Ru | 100 to 100,000 states | IDW | 7 | 112 | Scaling with state count |
-| `elements` | LiF carrier + traces | 2, 5, 9, 13, 17, 22 elements | IDW | 6 | 96 | Coordinate-dimension scaling |
+| `elements` | LiF carrier + traces | 2, 5, 9, 13, 17 elements | IDW | 5 | 80 | Coordinate-dimension scaling |
 | `fluoride_state_isolation` | excess-F reproducer | IDW versus KKT | both | 2 | 24 | Transactional state restoration |
 | `inactive_msfl_fallback` | low-temperature LiF | IDW versus KKT | both | 2 | 24 | Inactive unsupported-model fallback |
 | `active_subq_fallback` | active-MSFL FLiBe | IDW versus KKT | both | 2 | 24 | Active unsupported-model fallback |
@@ -244,7 +265,7 @@ are reused within a study when their physical case and execution topology are id
 | `parallel` | Mo-Ru and representative fluoride | 1/2/4 threads or MPI ranks | IDW | 10 | 160 | Worker-local cache scaling |
 | `output_cost` | representative fluoride | standard versus heat capacity | IDW | 2 | 32 | Derived-output overhead |
 
-The full campaign contains 928 MOOSE application launches. The three fluoride safety studies are
+The full campaign contains 912 MOOSE application launches. The three fluoride safety studies are
 reported separately from acceleration profiles. The balanced algorithm comparison is restricted
 to the two `QKTO` Mo-Ru trajectories, where both surrogate models are eligible to operate.
 

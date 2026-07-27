@@ -5,8 +5,12 @@ uses only databases distributed with the Chemical Reactions module and does not 
 worker caches.
 
 The driver verifies the SHA-256 digest of each database required by the selected studies before
-launching MOOSE. The MSTDB fluoride database is tracked explicitly despite the repository-wide
-`*.dat` ignore rule so a recursive clone contains every production input.
+launching MOOSE. The MSTDB v4.1 fluoride database (`MSDTC_41_fluorides.dat`) is tracked explicitly
+despite the repository-wide `*.dat` ignore rule so a recursive clone contains every production
+input. MSTDB v4.1 does not include Rb; the dimension study uses K in the former Rb slot and adds
+trace Xe only in its optional final group. The default representative trajectory drops the old Rb
+inventory; the optional 22-element variant assigns Xe \(10^{-6}\) moles rather than reusing the Rb
+amount.
 
 The detailed physical definitions, study-to-case mapping, production launch inventory, expected
 interpretation, and operator checklist are in
@@ -25,7 +29,8 @@ The core performance and safety-regression input problems are:
 
 - `binary_smooth.i`: a fixed-HCP Mo-Ru trajectory for interpolation and scaling studies;
 - `binary_boundary.i`: a wider Mo-Ru trajectory crossing HCP, liquid, and BCC regimes;
-- `multielement_fluoride.i`: the representative MSRE-derived 17/22-element chemistry;
+- `multielement_fluoride.i`: the representative MSRE-derived 17-element chemistry, with an
+  optional 22-element stress set;
 - `fluoride_dimension_trace.i`: a fixed LiF carrier with trace additions for controlled dimension
   scaling;
 - `lif_excess_f.i`: the historical gas-dominant F/Li=2.26 state-contamination regression;
@@ -71,6 +76,13 @@ The `smoke` tier is a functional check, `quick` is intended for local comparison
 the publication/performance tier. The full tier can take hours. Select one study with, for example,
 `--study tolerance`, and use `--repetitions` or `--no-prime` for exploratory runs. MPI runs use
 `mpiexec` by default; select a different launcher with `--mpiexec`.
+
+The v4.1 fluoride database is much more costly for high-dimensional exact GEM solves than the
+Mo-Ru database. Its quick/full meshes are intentionally smaller and stop at 17 elements; do not
+infer their state counts from the Mo-Ru studies. A 22-element set remains available in the driver
+as a manually budgeted stress case because a one-element-mesh exact run exceeded 15 minutes during
+local qualification. The exact default grids are recorded in the manifests and explained in
+`BENCHMARK_INVENTORY.md`.
 
 Use `--study algorithm_comparison` for the balanced exact, `local_idw`, and `kkt_linear` matrix
 used by the optimization-style visualizations. It is restricted to the fixed-HCP and

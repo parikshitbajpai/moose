@@ -17,9 +17,10 @@
     "elements": {
       "case": "fluoride_dimension_trace",
       "axis": "chemical_elements",
-      "mesh": 5000,
+      "mesh": 10,
+      "neighbors": 4,
       "relative_tolerance": 0.0001,
-      "values": [2, 5, 9, 13, 17, 22]
+      "values": [2, 5, 9, 13, 17]
     },
     "fluoride_state_isolation": {
       "case": "lif_excess_f",
@@ -55,8 +56,9 @@
     "surrogate_model": {
       "case": ["binary_smooth", "multielement_fluoride"],
       "axis": "surrogate_model",
-      "mesh": {"binary_smooth": 10000, "multielement_fluoride": 5000},
+      "mesh": {"binary_smooth": 10000, "multielement_fluoride": 10},
       "chemical_elements": {"multielement_fluoride": 17},
+      "neighbors": 8,
       "relative_tolerance": 0.0001,
       "values": ["local_idw", "kkt_linear"]
     },
@@ -101,8 +103,9 @@
     "parallel": {
       "case": ["binary_smooth", "multielement_fluoride"],
       "axis": "parallel",
-      "mesh": {"binary_smooth": 100000, "multielement_fluoride": 5000},
+      "mesh": {"binary_smooth": 100000, "multielement_fluoride": 20},
       "chemical_elements": {"multielement_fluoride": 17},
+      "neighbors": 8,
       "relative_tolerance": 0.0001,
       "values": [
         {"threads": 1, "ranks": 1},
@@ -115,7 +118,8 @@
     "output_cost": {
       "case": ["multielement_fluoride", "multielement_heat_capacity"],
       "axis": "output_set",
-      "mesh": 500,
+      "mesh": 5,
+      "neighbors": 4,
       "chemical_elements": {
         "multielement_fluoride": 17,
         "multielement_heat_capacity": 17

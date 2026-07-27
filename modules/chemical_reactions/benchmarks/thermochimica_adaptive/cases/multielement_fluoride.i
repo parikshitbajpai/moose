@@ -68,7 +68,7 @@
     family = MONOMIAL
     order = CONSTANT
   []
-  [Rb]
+  [Xe]
     family = MONOMIAL
     order = CONSTANT
   []
@@ -108,8 +108,8 @@
 
 [ChemicalComposition]
   [thermo]
-    elements = 'Pu U Th Nd Pr Ce La Ba Cs I Zr Y Sr Rb Ni Fe Cr K Na F Be Li'
-    thermodynamic_database = ../../../examples/MSRE/MSTDB-TC_V3.0_Fluorides_No_Functions_8-2.dat
+    elements = 'Pu U Th Nd Pr Ce La Ba Cs I Zr Y Sr K F Be Li'
+    thermodynamic_database = ../MSDTC_41_fluorides.dat
     evaluation_location = elemental
     temperature_unit = K
     pressure_unit = Pa
@@ -167,7 +167,7 @@
     execute_on = 'initial timestep_begin'
   []
 
-  # The coefficients follow the element order in the thermodynamic database.
+  # Preserve the historical trajectory coefficients; new optional elements use trace amounts.
   [Pu]
     type = FunctionAux
     variable = Pu
@@ -246,10 +246,10 @@
     function = '5.87077753e-5*(1 + 0.01*(x + 0.0037*t - 0.5))'
     execute_on = 'initial timestep_begin'
   []
-  [Rb]
+  [Xe]
     type = FunctionAux
-    variable = Rb
-    function = '1.97168154e-5*(1 - 0.02*(x + 0.0037*t - 0.5))'
+    variable = Xe
+    function = '1e-6*(1 - 0.02*(x + 0.0037*t - 0.5))'
     execute_on = 'initial timestep_begin'
   []
   [Ni]
@@ -378,10 +378,10 @@
     variable = Sr
     function = '5.87077753e-5*(1 + 0.01*(x - 0.5))'
   []
-  [Rb]
+  [Xe]
     type = FunctionIC
-    variable = Rb
-    function = '1.97168154e-5*(1 - 0.02*(x - 0.5))'
+    variable = Xe
+    function = '1e-6*(1 - 0.02*(x - 0.5))'
   []
   [Ni]
     type = FunctionIC
