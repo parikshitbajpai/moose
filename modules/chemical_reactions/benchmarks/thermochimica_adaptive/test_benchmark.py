@@ -126,6 +126,34 @@ class BenchmarkTests(unittest.TestCase):
         )
         self.assertFalse(any("surrogate_model=calibration" in value for value in command))
 
+    def test_parallel_thread_case_uses_launcher_for_one_rank(self):
+        config = {
+            "study": "parallel",
+            "case": "binary_smooth",
+            "mesh": 100,
+            "chemical_elements": 2,
+            "relative_tolerance": 1e-4,
+            "neighbors": 8,
+            "cache_capacity": 10000,
+            "audit_interval": 100,
+            "warm_start": "previous_solve",
+            "surrogate_model": "local_idw",
+            "threads": 4,
+            "ranks": 1,
+        }
+        command = benchmark.command_for(
+            Path("/tmp/chemical_reactions-opt"),
+            "/usr/bin/srun",
+            "/tmp/moose-dev-exec",
+            config,
+            "adaptive",
+            Path("/tmp/parallel"),
+        )
+        self.assertEqual(
+            command[:4],
+            ["/usr/bin/srun", "-n", "1", "/tmp/moose-dev-exec"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

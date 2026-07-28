@@ -686,7 +686,7 @@ def command_for(
         )
     if exec_prefix:
         command = [exec_prefix] + command
-    if config["ranks"] > 1:
+    if config["ranks"] > 1 or config["study"] == "parallel":
         command = [mpiexec, "-n", str(config["ranks"])] + command
     return command
 
