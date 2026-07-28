@@ -19,24 +19,16 @@ TC_REPO="${TC_REPO:-/home/bajpp/projects/tc_cache}"
 : "${TC_RESULTS:?Set TC_RESULTS to persistent scratch storage}"
 MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
 MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
-MPI_LAUNCHER="${MPI_LAUNCHER:-srun}"
+MPI_LAUNCHER="${MPI_LAUNCHER:-mpiexec}"
 
 module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
 
-# Match MOOSE's Teton RunHPC setup: load the host container/MPI modules
-# advertised by the selected moose-dev module and use its executable wrapper.
-read -r -a CONTAINER_REQUIRED_MODULES <<< "${CONTAINER_MODULE_REQUIRED_MODULES:-}"
-if ((${#CONTAINER_REQUIRED_MODULES[@]})); then
-  module unload "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
-  module load "${CONTAINER_REQUIRED_MODULES[@]}" "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
-fi
-CONTAINER_EXEC_NAME="${CONTAINER_MODULE_EXEC:?The container module did not set CONTAINER_MODULE_EXEC}"
-CONTAINER_EXEC="$(type -P "${CONTAINER_EXEC_NAME}" || true)"
+CONTAINER_EXEC="$(type -P moose-dev-exec || true)"
 if [[ ! -x "${CONTAINER_EXEC}" ]]; then
-  echo "${CONTAINER_EXEC_NAME} is not an executable after loading the required modules" >&2
+  echo "moose-dev-exec is not an executable after loading ${MOOSE_DEV_MODULE}" >&2
   exit 1
 fi
 
@@ -49,7 +41,8 @@ printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
 module list > "${OUTPUT}/modules.txt" 2>&1
 "${MPI_LAUNCHER}" -n 2 "${CONTAINER_EXEC}" /bin/true
 
-# Teton uses srun for MPI configurations.
+# The driver runs on the host. Each application invocation follows the supported
+# INL pattern: mpiexec -n N moose-dev-exec <application>.
 python3 "${DRIVER}" run \
   --tier full \
   --study parallel \
