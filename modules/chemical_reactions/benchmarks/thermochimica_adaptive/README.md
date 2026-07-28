@@ -185,11 +185,12 @@ moose-dev-exec python3 \
 The full-array launcher defaults to Teton's `moose-dev-mpich` module and runs the Python driver
 inside one `moose-dev-exec` invocation. All studies in that array are single-rank, so the MOOSE
 subprocesses inherit the container environment without a per-command execution prefix. The
-parallel-scaling launcher is separate: its host-side driver launches each application as
-`mpiexec -n N moose-dev-exec APPLICATION`, following the supported INL multi-process container
-pattern. Override `MOOSE_DEV_MPI` or `MPI_LAUNCHER` only when the selected cluster module requires
-it, and never substitute an unversioned module. A study with no successful configurations exits
-nonzero instead of leaving apparently successful header-only result files.
+parallel-scaling launcher is separate: on Teton its host-side driver launches each application as
+`srun -n N moose-dev-exec APPLICATION`. This uses Slurm to create ranks inside the allocation and
+the public wrapper to enter the versioned container on every rank. Override `MOOSE_DEV_MPI` or
+`MPI_LAUNCHER` only when the selected cluster requires a different MPI integration, and never
+substitute an unversioned module. A study with no successful configurations exits nonzero instead
+of leaving apparently successful header-only result files.
 The Teton launchers default `TC_REPO` to `/home/bajpp/projects/tc_cache`. Slurm standard output and
 error files are written beneath the benchmark directory in `out/` and `err/`, respectively.
 The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
