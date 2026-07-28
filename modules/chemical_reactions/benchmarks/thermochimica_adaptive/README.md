@@ -166,7 +166,8 @@ module-provided `moose-dev-exec` alias or function. The bridge is necessary beca
 subprocesses cannot execute shell aliases directly, and it preserves the containerized MPI command
 ordering required by INL. The Slurm launchers capture the alias while Lmod is available and perform
 a container preflight before starting a study. A study with no successful configurations exits
-nonzero instead of leaving apparently successful header-only result files.
+nonzero instead of leaving apparently successful header-only result files. The executable bridge
+also prevents the repository's `apptainer/` directory from shadowing Teton's Apptainer executable.
 The Teton launchers default `TC_REPO` to `/home/bajpp/projects/tc_cache`. Slurm standard output and
 error files are written beneath the benchmark directory in `out/` and `err/`, respectively.
 The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
