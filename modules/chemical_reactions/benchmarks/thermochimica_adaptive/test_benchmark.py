@@ -95,6 +95,37 @@ class BenchmarkTests(unittest.TestCase):
             )
         self.assertAlmostEqual(tolerances["hcp_amount"], 1e-7)
 
+    def test_exact_calibration_uses_a_valid_surrogate_enum(self):
+        config = benchmark.expand_study(
+            "capability_comparison",
+            {
+                "meshes": [100],
+                "tolerances": [1e-4],
+                "surrogate_models": ["local_idw"],
+                "problems": [
+                    {
+                        "id": "hcp",
+                        "composition_min": 0.25,
+                        "composition_max": 0.45,
+                    }
+                ],
+            },
+        )[0]
+        config["warm_start"] = "none"
+        config["surrogate_model"] = "local_idw"
+        command = benchmark.command_for(
+            Path("/tmp/chemical_reactions-opt"),
+            "mpiexec",
+            None,
+            config,
+            "exact",
+            Path("/tmp/calibration"),
+        )
+        self.assertIn(
+            "ChemicalComposition/thermo/surrogate_model=local_idw", command
+        )
+        self.assertFalse(any("surrogate_model=calibration" in value for value in command))
+
 
 if __name__ == "__main__":
     unittest.main()

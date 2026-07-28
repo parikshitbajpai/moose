@@ -1037,7 +1037,8 @@ def run_suite(args: argparse.Namespace) -> Path:
                 if config["study"] == "capability_comparison" and key not in absolute_tolerances:
                     cold_config = dict(config)
                     cold_config["warm_start"] = "none"
-                    cold_config["surrogate_model"] = "calibration"
+                    # Exact mode does not use the surrogate, but MOOSE still validates this enum.
+                    cold_config["surrogate_model"] = "local_idw"
                     cold = execute_once(
                         executable,
                         args.mpiexec,
