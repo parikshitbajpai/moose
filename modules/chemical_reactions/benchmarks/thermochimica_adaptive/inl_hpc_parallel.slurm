@@ -17,6 +17,7 @@ set -euo pipefail
 
 TC_REPO="${TC_REPO:-/home/bajpp/projects/tc_cache}"
 : "${TC_RESULTS:?Set TC_RESULTS to persistent scratch storage}"
+HOST_PYTHON="${HOST_PYTHON:-/usr/bin/python3}"
 MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
 MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
 MPI_LAUNCHER_NAME="${MPI_LAUNCHER:-srun}"
@@ -26,6 +27,11 @@ module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
 
+if [[ ! -x "${HOST_PYTHON}" ]]; then
+  echo "Host Python is not executable: ${HOST_PYTHON}" >&2
+  exit 1
+fi
+
 MPI_LAUNCHER="$(type -P "${MPI_LAUNCHER_NAME}" || true)"
 if [[ ! -x "${MPI_LAUNCHER}" ]]; then
   echo "${MPI_LAUNCHER_NAME} is not an executable after loading ${MOOSE_DEV_MODULE}" >&2
@@ -33,6 +39,12 @@ if [[ ! -x "${MPI_LAUNCHER}" ]]; then
   type -a srun mpiexec 2>&1 || true
   exit 1
 fi
+"${HOST_PYTHON}" -c \
+  'import os, sys; sys.exit(0 if os.path.isfile(sys.argv[1]) and os.access(sys.argv[1], os.X_OK) else 1)' \
+  "${MPI_LAUNCHER}" || {
+    echo "${HOST_PYTHON} cannot access launcher ${MPI_LAUNCHER}" >&2
+    exit 1
+  }
 
 CONTAINER_EXEC="$(type -P moose-dev-exec || true)"
 if [[ ! -x "${CONTAINER_EXEC}" ]]; then
@@ -51,7 +63,7 @@ module list > "${OUTPUT}/modules.txt" 2>&1
 
 # The driver runs on the host. Teton's Slurm allocation launches each
 # application rank through the public container wrapper.
-python3 "${DRIVER}" run \
+"${HOST_PYTHON}" "${DRIVER}" run \
   --tier full \
   --study parallel \
   --exe "${EXECUTABLE}" \
