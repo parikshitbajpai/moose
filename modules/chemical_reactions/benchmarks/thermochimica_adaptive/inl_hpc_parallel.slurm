@@ -9,6 +9,9 @@
 #SBATCH --exclusive
 #SBATCH --output=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/out/tc-parallel-%j.out
 #SBATCH --error=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/err/tc-parallel-%j.err
+#SBATCH --wckey=neams
+#SBATCH --mail-user=parikshit.bajpai@inl.gov
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 set -euo pipefail
 

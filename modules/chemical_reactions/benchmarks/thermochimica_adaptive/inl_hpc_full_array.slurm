@@ -5,11 +5,14 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --time=72:00:00
 #SBATCH --exclusive
 #SBATCH --output=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/out/tc-adaptive-%A_%a.out
 #SBATCH --error=/home/bajpp/projects/tc_cache/modules/chemical_reactions/benchmarks/thermochimica_adaptive/err/tc-adaptive-%A_%a.err
+#SBATCH --wckey=neams
+#SBATCH --mail-user=parikshit.bajpai@inl.gov
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 set -euo pipefail
 
