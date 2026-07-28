@@ -185,11 +185,9 @@ moose-dev-exec python3 \
 The full-array launcher defaults to Teton's `moose-dev-mpich` module and runs the Python driver
 inside one `moose-dev-exec` invocation. All studies in that array are single-rank, so the MOOSE
 subprocesses inherit the container environment without a per-command execution prefix. The
-parallel-scaling launcher is separate: on Teton its host-side driver launches each application as
-`srun -n N moose-dev-exec APPLICATION`. This uses Slurm to create ranks inside the allocation and
-the public wrapper to enter the versioned container on every rank. The driver explicitly uses
-host `/usr/bin/python3`; the module-selected Python may run in a container namespace that cannot
-see the host `srun` path. Override `HOST_PYTHON`, `MOOSE_DEV_MPI`, or `MPI_LAUNCHER` only when the
+parallel-scaling launcher also enters the container once, then runs the driver and `mpiexec`
+inside that container. Starting `moose-dev-exec` separately for each rank is unsupported because
+the ranks can contend for the same Apptainer instance. Override `MOOSE_DEV_MPI` only when the
 selected cluster requires it, and never substitute an unversioned module. A study with no
 successful configurations exits nonzero instead of leaving apparently successful header-only
 result files.
