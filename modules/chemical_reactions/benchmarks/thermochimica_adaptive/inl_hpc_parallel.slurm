@@ -31,9 +31,15 @@ if ! type moose-dev-exec >/dev/null 2>&1; then
   exit 1
 fi
 if declare -F moose-dev-exec >/dev/null; then
-  export -f moose-dev-exec
+  MOOSE_DEV_EXEC_DEFINITION="$(declare -f moose-dev-exec)"
+  MOOSE_DEV_EXEC_DEFINITION="${MOOSE_DEV_EXEC_DEFINITION/#moose-dev-exec/thermochimica_moose_dev_exec}"
+  eval "${MOOSE_DEV_EXEC_DEFINITION}"
+elif alias moose-dev-exec >/dev/null 2>&1; then
+  eval 'thermochimica_moose_dev_exec() { moose-dev-exec "$@"; }'
+else
+  MOOSE_DEV_EXEC_DEFINITION="$(type -P moose-dev-exec)"
+  eval 'thermochimica_moose_dev_exec() { '"${MOOSE_DEV_EXEC_DEFINITION}"' "$@"; }'
 fi
-eval 'thermochimica_moose_dev_exec() { moose-dev-exec "$@"; }'
 export -f thermochimica_moose_dev_exec
 
 OUTPUT="${TC_RESULTS}/full_parallel_${SLURM_JOB_ID}"
