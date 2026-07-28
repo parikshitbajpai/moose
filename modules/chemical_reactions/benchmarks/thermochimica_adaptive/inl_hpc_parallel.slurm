@@ -19,12 +19,20 @@ TC_REPO="${TC_REPO:-/home/bajpp/projects/tc_cache}"
 : "${TC_RESULTS:?Set TC_RESULTS to persistent scratch storage}"
 MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
 MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
-MPI_LAUNCHER="${MPI_LAUNCHER:-srun}"
+MPI_LAUNCHER_NAME="${MPI_LAUNCHER:-srun}"
 
 module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+
+MPI_LAUNCHER="$(type -P "${MPI_LAUNCHER_NAME}" || true)"
+if [[ ! -x "${MPI_LAUNCHER}" ]]; then
+  echo "${MPI_LAUNCHER_NAME} is not an executable after loading ${MOOSE_DEV_MODULE}" >&2
+  echo "Available launchers:" >&2
+  type -a srun mpiexec 2>&1 || true
+  exit 1
+fi
 
 CONTAINER_EXEC="$(type -P moose-dev-exec || true)"
 if [[ ! -x "${CONTAINER_EXEC}" ]]; then
