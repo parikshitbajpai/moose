@@ -17,32 +17,27 @@ TC_REPO="${TC_REPO:-/home/bajpp/projects/tc_cache}"
 : "${TC_RESULTS:?Set TC_RESULTS to persistent scratch storage}"
 MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
 MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
+MPI_LAUNCHER="${MPI_LAUNCHER:-srun}"
 
 module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
-export MOOSE_DEV_VERSION
 
-# Python cannot execute the module-provided shell alias directly. Capture its
-# expansion while Lmod is available, then export a normal Bash function for
-# the executable bridge used by every benchmark subprocess.
-shopt -s expand_aliases
-if ! type moose-dev-exec >/dev/null 2>&1; then
-  echo "moose-dev-exec was not defined by ${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}" >&2
+# Follow the same container-module setup used by MOOSE's RunHPC scheduler.
+# Teton's moose-dev module advertises the host MPI/Apptainer modules that must
+# be loaded in the batch environment.
+read -r -a CONTAINER_REQUIRED_MODULES <<< "${CONTAINER_MODULE_REQUIRED_MODULES:-}"
+if ((${#CONTAINER_REQUIRED_MODULES[@]})); then
+  module unload "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+  module load "${CONTAINER_REQUIRED_MODULES[@]}" "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+fi
+CONTAINER_EXEC_NAME="${CONTAINER_MODULE_EXEC:?The container module did not set CONTAINER_MODULE_EXEC}"
+CONTAINER_EXEC="$(type -P "${CONTAINER_EXEC_NAME}" || true)"
+if [[ ! -x "${CONTAINER_EXEC}" ]]; then
+  echo "${CONTAINER_EXEC_NAME} is not an executable after loading the required modules" >&2
   exit 1
 fi
-if declare -F moose-dev-exec >/dev/null; then
-  MOOSE_DEV_EXEC_DEFINITION="$(declare -f moose-dev-exec)"
-  MOOSE_DEV_EXEC_DEFINITION="${MOOSE_DEV_EXEC_DEFINITION/#moose-dev-exec/thermochimica_moose_dev_exec}"
-  eval "${MOOSE_DEV_EXEC_DEFINITION}"
-elif alias moose-dev-exec >/dev/null 2>&1; then
-  eval 'thermochimica_moose_dev_exec() { moose-dev-exec "$@"; }'
-else
-  MOOSE_DEV_EXEC_DEFINITION="$(type -P moose-dev-exec)"
-  eval 'thermochimica_moose_dev_exec() { '"${MOOSE_DEV_EXEC_DEFINITION}"' "$@"; }'
-fi
-export -f thermochimica_moose_dev_exec
 
 STUDIES=(
   tolerance
@@ -65,20 +60,19 @@ STUDY="${STUDIES[$SLURM_ARRAY_TASK_ID]}"
 OUTPUT="${TC_RESULTS}/full_${STUDY}_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
 DRIVER="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py"
 EXECUTABLE="${TC_REPO}/modules/chemical_reactions/chemical_reactions-opt"
-CONTAINER_EXEC="${TC_REPO}/modules/chemical_reactions/benchmarks/thermochimica_adaptive/inl_moose_exec.sh"
 
 mkdir -p "${OUTPUT}"
 printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
 module list > "${OUTPUT}/modules.txt" 2>&1
 "${CONTAINER_EXEC}" /bin/true
 
-# The host Python driver needs only the standard library. Each MOOSE process is
-# entered through moose-dev-exec, including every command recorded in metadata.
+# The host Python driver needs only the standard library. Each MOOSE process
+# uses the executable advertised by the loaded container module.
 python3 "${DRIVER}" run \
   --tier full \
   --study "${STUDY}" \
   --exe "${EXECUTABLE}" \
   --exec-prefix "${CONTAINER_EXEC}" \
-  --mpiexec mpiexec \
+  --mpiexec "${MPI_LAUNCHER}" \
   --skip-plots \
   --output "${OUTPUT}"

@@ -118,7 +118,14 @@ module purge
 module load use.moose versioner
 MOOSE_DEV_VERSION="$(./scripts/versioner.py moose-dev)"
 MOOSE_DEV_MPI="${MOOSE_DEV_MPI:-mpich}"
-module load "moose-dev-${MOOSE_DEV_MPI}/${MOOSE_DEV_VERSION}"
+MOOSE_DEV_MODULE="moose-dev-${MOOSE_DEV_MPI}"
+module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+read -r -a CONTAINER_REQUIRED_MODULES <<< "${CONTAINER_MODULE_REQUIRED_MODULES:-}"
+if ((${#CONTAINER_REQUIRED_MODULES[@]})); then
+  module unload "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+  module load "${CONTAINER_REQUIRED_MODULES[@]}" "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
+fi
+CONTAINER_EXEC="$(type -P "${CONTAINER_MODULE_EXEC}")"
 moose-dev-shell
 
 cd modules/chemical_reactions
@@ -130,7 +137,7 @@ exit
 Validate from the host with a single containerized command:
 
 ```bash
-moose-dev-exec python3 \
+"${CONTAINER_EXEC}" python3 \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py \
   validate --exe modules/chemical_reactions/chemical_reactions-opt
 ```
@@ -153,21 +160,17 @@ The batch scripts defer plotting so host Python does not need Matplotlib. Genera
 afterward inside the container:
 
 ```bash
-moose-dev-exec python3 \
+"${CONTAINER_EXEC}" python3 \
   modules/chemical_reactions/benchmarks/thermochimica_adaptive/benchmark.py \
   plot --input /scratch/$USER/tc-results/RESULT_DIRECTORY
 ```
 
-The launchers default to Teton's `moose-dev-mpich` module. Set `MOOSE_DEV_MPI=openmpi` when using a
-cluster that provides the OpenMPI container, and never substitute an unversioned module. The
-parallel script deliberately uses
-`mpiexec -n N inl_moose_exec.sh chemical_reactions-opt ...`, where the bridge script invokes the
-module-provided `moose-dev-exec` alias or function. The bridge is necessary because Python
-subprocesses cannot execute shell aliases directly, and it preserves the containerized MPI command
-ordering required by INL. The Slurm launchers capture the alias while Lmod is available and perform
-a container preflight before starting a study. A study with no successful configurations exits
-nonzero instead of leaving apparently successful header-only result files. The executable bridge
-also prevents the repository's `apptainer/` directory from shadowing Teton's Apptainer executable.
+The launchers default to Teton's `moose-dev-mpich` module and `srun`. They follow MOOSE's RunHPC
+configuration by loading the host modules listed in `CONTAINER_MODULE_REQUIRED_MODULES` and running
+the executable named by `CONTAINER_MODULE_EXEC`. Set `MOOSE_DEV_MPI=openmpi` and
+`MPI_LAUNCHER=mpiexec` on a cluster using OpenMPI, and never substitute an unversioned module. Both
+launchers perform a container preflight before starting a study. A study with no successful
+configurations exits nonzero instead of leaving apparently successful header-only result files.
 The Teton launchers default `TC_REPO` to `/home/bajpp/projects/tc_cache`. Slurm standard output and
 error files are written beneath the benchmark directory in `out/` and `err/`, respectively.
 The full array requests one CPU and 32 GiB because its studies are serial; requesting additional
