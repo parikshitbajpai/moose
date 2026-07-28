@@ -24,13 +24,15 @@
       "audit_interval": 1,
       "values": ["kkt_linear"]
     },
-    "algorithm_comparison": {
-      "case": ["binary_smooth", "binary_boundary"],
-      "axis": "relative_tolerance",
-      "mesh": 100,
-      "values": [0.001],
+    "capability_comparison": {
+      "meshes": [100],
+      "tolerances": [0.0001],
       "audit_interval": 10,
-      "surrogate_models": ["local_idw", "kkt_linear"]
+      "surrogate_models": ["local_idw", "kkt_linear"],
+      "problems": [
+        {"id": "hcp", "composition_min": 0.25, "composition_max": 0.45},
+        {"id": "full_traversal", "composition_min": 0.20, "composition_max": 0.80}
+      ]
     }
   }
 }

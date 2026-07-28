@@ -1,4 +1,4 @@
-# Adaptive Thermochimica benchmark inventory and run checklist
+<!-- # Adaptive Thermochimica benchmark inventory and run checklist
 
 This document defines what each benchmark means, what it is intended to measure, and how to
 interpret a production run. It deliberately distinguishes:
@@ -15,7 +15,7 @@ behavior while the relevant Thermochimica phase models remain unqualified.
 ## Common execution model
 
 Every case uses elemental evaluation on a generated one-dimensional mesh. The coordinate
-\(x\in[0,1]\) is a state generator, not a physical transport coordinate. With `nx = N`, each
+$x\in[0,1]$ is a state generator, not a physical transport coordinate. With `nx = N`, each
 Thermochimica execution stage evaluates \(N\) independent equilibrium states.
 
 The cases use two transient steps because the Thermochimica object executes before the
@@ -151,10 +151,10 @@ results; cluster timings must be measured on the target nodes.
 
 The carrier is kept near stoichiometric LiF:
 
-\[
+$$
 n_\mathrm{F}=1[1+0.002(q-0.5)], \qquad
 n_\mathrm{Li}=1[1-0.002(q-0.5)].
-\]
+$$
 
 Every non-carrier element is assigned approximately \(10^{-6}\) moles and a small relative
 trajectory. The nested element sets are:
@@ -183,11 +183,11 @@ and full manifests. Run it only as an explicitly budgeted stress case.
 
 This case retains only Li and F from the MSRE-derived composition:
 
-\[
+$$
 n_\mathrm{F}\approx38.77,\qquad
 n_\mathrm{Li}\approx17.19,\qquad
 n_\mathrm{F}/n_\mathrm{Li}\approx2.26.
-\]
+$$
 
 It is intentionally not a physical LiF trajectory. The exact quick scan was gas-dominant, with
 zero MSFL fraction and gas fractions of approximately 0.39-0.56.
@@ -204,11 +204,11 @@ successful result is exact fallback with:
 
 **Recommended presentation name:** Near-stoichiometric LiF inactive-MSFL fallback regression.
 
-\[
+$$
 n_\mathrm{F}=1[1+0.002(q-0.5)], \qquad
 n_\mathrm{Li}=1[1-0.002(q-0.5)], \qquad
 T=900+30q\ \mathrm{K}.
-\]
+$$
 
 Pressure follows the common 185-230 kPa trajectory. The exact quick scan had zero MSFL fraction
 and at most a very small gas fraction. This case verifies exact fallback and state isolation while
@@ -220,12 +220,12 @@ It does not qualify `SUBQ`, and no KKT speedup is expected.
 
 **Recommended presentation name:** Active-SUBQ FLiBe fallback regression.
 
-\[
+$$
 n_\mathrm{Li}=1.0,\qquad n_\mathrm{Be}=0.33,\qquad n_\mathrm{F}=1.66,
-\]
+$$
 
 with \(T=1000+30q\) K. The composition is approximately charge balanced because
-\(n_\mathrm{Li}+2n_\mathrm{Be}=n_\mathrm{F}\). The exact quick scan had unit MSFL fraction and zero
+$n_\mathrm{Li}+2n_\mathrm{Be}=n_\mathrm{F}$. The exact quick scan had unit MSFL fraction and zero
 gas fraction.
 
 All three amounts receive almost the same relative displacement, so this trajectory mainly varies
@@ -323,7 +323,33 @@ Use:
 - `output_cost`.
 
 Report worker time, wall time, exact-call count, cache occupancy, peak RSS, sensitivity storage,
-and parallel efficiency separately.
+and parallel efficiency separately. -->
+
+## Canonical capability comparison
+
+`capability_comparison` is the only study used for headline acceleration claims. It runs exact GEM,
+`local_idw`, and `kkt_linear` with identical settings over the following Mo-Ru regions at 2250 K:
+
+| Problem ID | Mo interval | Thermodynamic purpose |
+| --- | ---: | --- |
+| `hcp` | 0.25-0.45 | Smooth single-phase HCP |
+| `hcp_liquid` | 0.52-0.56 | Fixed HCP-liquid assemblage |
+| `liquid` | 0.59-0.61 | Smooth single-phase liquid |
+| `bcc_liquid` | 0.64-0.68 | Fixed BCC-liquid assemblage |
+| `bcc` | 0.72-0.78 | Smooth single-phase BCC |
+| `full_traversal` | 0.20-0.80 | Phase-boundary safety |
+
+The query displacement is `sqrt(2) * 1e-3` times the interval width. The driver rejects an
+exactly grid-aligned population/query pair before launching MOOSE. Quick runs use 1,000 states and
+the primary relative tolerance `1e-4`; full runs use 1,000, 5,000, and 10,000 states at `1e-2`,
+`1e-3`, `1e-4`, and `1e-5`.
+
+For each problem and tolerance, report total wall speedup, worker speedup, exact-call reduction,
+exhaustive normalized error, and the mutually exclusive cache-reuse/surrogate/audit/fallback
+fractions. A result passes only if every sampled output is within tolerance, audit and restoration
+failures are zero, exact GEM calls fall by at least 50%, and total wall time improves by at least
+2x. Fluoride and Li-F cases remain qualification/fallback evidence and are not included in the
+performance-profile problem set.
 
 ## Production run checklist
 
@@ -370,7 +396,7 @@ and parallel efficiency separately.
 - [ ] Confirm the mesh sizes match the intended strong- or fixed-size scaling interpretation.
 - [ ] Confirm `algorithm_comparison` contains only mutually comparable phase-model coverage.
 - [ ] Confirm safety regressions use `surrogate_audit_interval = 1`.
-- [ ] Confirm the representative tolerance is \(10^{-4}\).
+- [ ] Confirm the representative tolerance is $10^{-4}$.
 - [ ] Archive the exact manifest files with the results.
 
 ### 5. During execution
@@ -387,9 +413,9 @@ and parallel efficiency separately.
 
 ### 6. Accuracy and safety review
 
-- [ ] Confirm exact and adaptive sample counts and element IDs match.
+- [ ] Confirm Full GEM and accelerated-method sample counts and element IDs match.
 - [ ] Confirm all outputs are finite.
-- [ ] Confirm phase fractions lie in \([0,1]\).
+- [ ] Confirm phase fractions lie in $[0,1]$.
 - [ ] Confirm phase and gas amounts are nonnegative.
 - [ ] Confirm every accepted result satisfies its configured normalized error.
 - [ ] Inspect maximum, RMSE, and 95th-percentile errors by output rather than only aggregate error.
@@ -412,7 +438,8 @@ and parallel efficiency separately.
 ### 8. Archival and reproducibility
 
 - [ ] Preserve `metadata.json`, all manifests, scheduler scripts, and scheduler output.
-- [ ] Preserve raw exact/adaptive sample CSV files for accepted publication points.
+- [ ] Preserve raw Full GEM and accelerated-method sample CSV files for accepted publication
+      points.
 - [ ] Preserve application logs for failures and representative successful runs.
 - [ ] Generate both PNG and SVG figures.
 - [ ] Record whether Matplotlib and `psutil` were available.
@@ -420,7 +447,7 @@ and parallel efficiency separately.
 - [ ] Copy results from scratch storage to long-term storage before the retention deadline.
 - [ ] Document excluded runs and the exclusion criterion.
 
-## Known limitations
+<!-- ## Known limitations
 
 - Cache histories are worker-local, so hit counts can change with thread or MPI decomposition.
 - The driver checkpoints completed repetitions but does not yet resume an interrupted study.
@@ -430,4 +457,4 @@ and parallel efficiency separately.
 - The FLiBe safety trajectory does not span independent composition directions.
 - Heat capacity invokes additional equilibria and must remain separate from core GEM timing.
 - Sampled accuracy and deterministic audits provide empirical safeguards, not a proof for every
-  unaudited state.
+  unaudited state. -->

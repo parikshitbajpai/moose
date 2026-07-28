@@ -25,8 +25,21 @@ sensitivity predictor and its ellipsoid metric. The driver records sensitivity c
 factorization failures, linear retrieves, ellipsoid updates, and Jacobian/metric storage alongside
 the original `local_idw` telemetry.
 
+Reader-facing reports use descriptive method names:
+
+- **Full GEM**: complete Thermochimica Gibbs-energy minimization at every state;
+- **Adaptive local interpolation**: validated inverse-distance interpolation from nearby exact
+  equilibria; and
+- **Adaptive KKT sensitivity**: a fixed-assemblage linear predictor based on equilibrium
+  sensitivities.
+
+Both adaptive methods use caching, auditing, and safeguarded Full GEM fallback. `adaptive` is an
+execution mode rather than a separate algorithm and therefore does not appear as a headline
+competitor.
+
 The core performance and safety-regression input problems are:
 
+- `binary_boundary.i` with driver-supplied bounds: the common-output Mo-Ru capability matrix;
 - `binary_smooth.i`: a fixed-HCP Mo-Ru trajectory for interpolation and scaling studies;
 - `binary_boundary.i`: a wider Mo-Ru trajectory crossing HCP, liquid, and BCC regimes;
 - `multielement_fluoride.i`: the representative MSRE-derived 17-element chemistry, with an
@@ -80,7 +93,7 @@ conda run -n moose python3 \
 
 The `smoke` tier is a functional check, `quick` is intended for local comparisons, and `full` is
 the publication/performance tier. The full tier can take hours. Select one study with, for example,
-`--study tolerance`, and use `--repetitions` or `--no-prime` for exploratory runs. MPI runs use
+`--study capability_comparison`, and use `--repetitions` or `--no-prime` for exploratory runs. MPI runs use
 `mpiexec` by default; select a different launcher with `--mpiexec`.
 
 The v4.1 fluoride database is much more costly for high-dimensional exact GEM solves than the
@@ -90,17 +103,27 @@ as a manually budgeted stress case because a one-element-mesh exact run exceeded
 local qualification. The exact default grids are recorded in the manifests and explained in
 `BENCHMARK_INVENTORY.md`.
 
-Use `--study algorithm_comparison` for the balanced exact, `local_idw`, and `kkt_linear` matrix
-used by the optimization-style visualizations. It is restricted to the fixed-HCP and
-HCP-liquid-BCC Mo-Ru trajectories, where the `QKTO` model is eligible for KKT retrieval. Fluoride
-state-isolation and unsupported-model fallback are reported by separate safety studies:
+Use `--study capability_comparison` for the fair exact-GEM, `local_idw`, and `kkt_linear`
+comparison used by the headline visualizations. At the primary tolerance of \(10^{-4}\), quick
+runs cover six Mo-Ru phase regimes at 1,000 states. Full runs cover the same six regimes at 1,000,
+5,000, and 10,000 states and repeat the comparison at \(10^{-2}\), \(10^{-3}\), \(10^{-4}\), and
+\(10^{-5}\). The driver supplies a non-grid-aligned query displacement and rejects a configuration
+if its query coordinates overlap the populated cache coordinates exactly.
+
+Fluoride state-isolation and unsupported-model fallback are reported by separate safety studies:
 `fluoride_state_isolation`, `inactive_msfl_fallback`, and `active_subq_fallback`.
 
 ```bash
 conda run -n moose python3 benchmark.py run \
-  --tier quick --study algorithm_comparison \
+  --tier quick --study capability_comparison \
   --exe ../../chemical_reactions-opt \
   --output /tmp/thermochimica-algorithms
+
+conda run -n moose python3 benchmark.py report \
+  --input /tmp/thermochimica-algorithms
+
+conda run -n moose python3 benchmark.py plot \
+  --input /tmp/thermochimica-algorithms
 ```
 
 The grids and repetition counts are stored in `manifests/smoke.json`, `quick.json`, and `full.json`.
@@ -178,12 +201,19 @@ is acceptable. After a pilot, inspect `MaxRSS` with `sacct` and adjust memory wi
 Each run produces:
 
 - `runs.csv`: one record per application repetition and Thermochimica execution stage;
-- `accuracy.csv`: exact-versus-adaptive error statistics for every representative output;
+- `accuracy.csv`: Full GEM-versus-accelerated-method error statistics for every representative
+  output;
 - `failures.csv`: configurations that failed to launch or complete, without discarding other runs;
 - `summary.csv`: median and interquartile-range query metrics;
+- `comparison.csv`: the correctness-gated, common capability table used by headline plots;
+- `capability_gate.csv`: pass/fail verdicts and explicit failure reasons;
+- `utilization.csv`: mutually exclusive query-state utilization fractions;
+- `qualification.csv`: fluoride and Li-F coverage/fallback results;
+- `report.md`: a concise human-readable result summary;
 - `metadata.json`: revision, platform, environment, package, and command information;
 - `logs/` and `raw/`: application output and sampled state CSV files; and
-- `figures/`: PNG and SVG scaling, accuracy, rejection, and cache plots.
+- `figures/`: publication-style PDF, SVG, and 300-DPI transparent PNG figures; and
+- `figures/diagnostics/`: secondary scaling, rejection, cache, and execution diagnostics.
 
 Measured repetitions are written atomically to `runs.csv`, `accuracy.csv`, `failures.csv`, and
 `summary.csv` as soon as they finish. Consequently, a second terminal can regenerate partial plots
@@ -193,25 +223,38 @@ while a long study is still running:
 conda run -n moose python3 benchmark.py plot --input /tmp/thermochimica-algorithms
 ```
 
-The balanced comparison produces:
+The capability comparison produces separate wall-time and worker-time performance profiles for
+each requested tolerance, an exact-call data profile, a work-precision plot, stacked state
+utilization, and common tolerance curves. Invalid algorithms receive infinite profile cost but
+remain in the denominator. Diagnostic plots from cache, warm-start, rejection, parallel, and
+output-cost studies are written under `figures/diagnostics/`.
 
-- `algorithm_performance_profiles`: Dolan-More-style worker and wall-time profiles;
-- `algorithm_data_profile`: fraction of valid problems reached within an exact-GEM-call budget;
-- `algorithm_work_precision`: query time and speedup versus maximum normalized error;
-- `algorithm_speedup_heatmap`: median valid speedup by problem and surrogate;
-- `algorithm_stage_learning`: exact-call fraction and cache growth from initial to query stage; and
-- `phase_boundary_trajectory`: exact HCP/liquid/BCC fractions and surrogate error along the
-  boundary path.
+All figures load the tracked `report.mplstyle`, use a colorblind-safe and grayscale-distinguishable
+method palette, place headline legends outside the data region, and export transparent PDF, SVG,
+and 300-DPI PNG files. LaTeX text rendering is used when a `latex` executable is available and
+falls back to Matplotlib text rendering otherwise.
 
-The profiles are correctness-gated. An adaptive result is valid only when its sampled maximum
-error is within the requested relative tolerance and both its audit-failure and state-restoration
-failure counts are zero. Invalid results remain in the work-precision plot but receive infinite
-cost in performance and data profiles. Exact GEM is always the reference valid algorithm.
+Accuracy uses
+
+\[
+\frac{|\widehat y-y|}
+{a+r\max(|\widehat y|,|y|)},
+\]
+
+where \(r\) is the requested relative tolerance. Before running either adaptive model, the driver
+compares exact warm-start and exact cold-start results and sets \(a\) to the larger of ten times
+their reproducibility difference and a floating-point precision floor. Any manifest overrides are
+recorded explicitly. A capability result is accurate only if every sampled normalized error is at
+most one and audit/restoration counters remain zero.
 
 `worker_solve_time` isolates the Thermochimica worker, while `wall_time` includes process startup,
-mesh setup, cache training, query evaluation, sampling, and output. Capability-gate fields use the
-last/query-stage worker time: at least 50% fewer exact solves, a 2x worker speedup, and zero audit
-failures. The gate is reported but does not stop a study.
+mesh setup, cache training, query evaluation, sampling, and output. The capability gate requires
+valid sampled accuracy, at least 50% fewer exact GEM calls, and at least 2x total wall-time
+speedup. Worker speedup is diagnostic and cannot by itself pass the gate.
+
+Query-state utilization is partitioned into exact cache reuse, published surrogate results,
+audited exact results, and exact fallback. `exact_solves / states` is reported separately because
+cold retries can add GEM calls without adding evaluated states.
 
 `matplotlib` is required for plots. If `psutil` is installed, the driver samples the aggregate
 resident memory of the application process tree; otherwise the RSS field is empty. Thread and MPI

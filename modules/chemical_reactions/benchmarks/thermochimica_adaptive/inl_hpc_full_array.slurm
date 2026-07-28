@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=tc-adaptive
 #SBATCH --partition=general
-#SBATCH --array=0-13%4
+#SBATCH --array=0-11%4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
@@ -27,15 +27,13 @@ MOOSE_DEV_VERSION="$("${TC_REPO}/scripts/versioner.py" moose-dev)"
 module load "${MOOSE_DEV_MODULE}/${MOOSE_DEV_VERSION}"
 
 STUDIES=(
-  tolerance
+  capability_comparison
   mesh
   elements
   fluoride_state_isolation
   inactive_msfl_fallback
   active_subq_fallback
   neighbors
-  surrogate_model
-  algorithm_comparison
   cache
   audit
   warm_start

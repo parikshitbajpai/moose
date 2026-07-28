@@ -2,11 +2,19 @@
   "repetitions": 3,
   "prime": true,
   "studies": {
-    "tolerance": {
-      "case": "binary_smooth",
-      "axis": "relative_tolerance",
-      "mesh": 2000,
-      "values": [0.01, 0.001, 0.0001, 0.00001]
+    "capability_comparison": {
+      "meshes": [1000],
+      "tolerances": [0.0001],
+      "audit_interval": 10,
+      "surrogate_models": ["local_idw", "kkt_linear"],
+      "problems": [
+        {"id": "hcp", "composition_min": 0.25, "composition_max": 0.45},
+        {"id": "hcp_liquid", "composition_min": 0.52, "composition_max": 0.56},
+        {"id": "liquid", "composition_min": 0.59, "composition_max": 0.61},
+        {"id": "bcc_liquid", "composition_min": 0.64, "composition_max": 0.68},
+        {"id": "bcc", "composition_min": 0.72, "composition_max": 0.78},
+        {"id": "full_traversal", "composition_min": 0.20, "composition_max": 0.80}
+      ]
     },
     "mesh": {
       "case": "binary_smooth",
@@ -53,24 +61,6 @@
       "mesh": 2000,
       "relative_tolerance": 0.0001,
       "values": [2, 8, "auto"]
-    },
-    "surrogate_model": {
-      "case": "binary_smooth",
-      "axis": "surrogate_model",
-      "mesh": 2000,
-      "relative_tolerance": 0.0001,
-      "values": ["local_idw", "kkt_linear"]
-    },
-    "algorithm_comparison": {
-      "case": ["binary_smooth", "binary_boundary"],
-      "axis": "relative_tolerance",
-      "mesh": {
-        "binary_smooth": 500,
-        "binary_boundary": 500
-      },
-      "values": [0.01, 0.0001],
-      "audit_interval": 10,
-      "surrogate_models": ["local_idw", "kkt_linear"]
     },
     "warm_start": {
       "case": "binary_smooth",
