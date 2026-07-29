@@ -38,10 +38,10 @@ EXECUTABLE="${TC_REPO}/modules/chemical_reactions/chemical_reactions-opt"
 mkdir -p "${OUTPUT}"
 printf '%s\n' "${MOOSE_DEV_VERSION}" > "${OUTPUT}/inl_container_version.txt"
 module list > "${OUTPUT}/modules.txt" 2>&1
-"${CONTAINER_EXEC}" mpiexec -n 2 /bin/hostname
+"${CONTAINER_EXEC}" env HYDRA_LAUNCHER=fork mpiexec -n 2 /bin/hostname
 
 # Enter the container once; the driver launches MPI ranks inside it.
-"${CONTAINER_EXEC}" python "${DRIVER}" run \
+"${CONTAINER_EXEC}" env HYDRA_LAUNCHER=fork python "${DRIVER}" run \
   --tier full \
   --study parallel \
   --exe "${EXECUTABLE}" \
