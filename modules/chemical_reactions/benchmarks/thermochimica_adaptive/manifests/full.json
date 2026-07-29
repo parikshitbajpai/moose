@@ -100,8 +100,12 @@
         {"threads": 1, "ranks": 1},
         {"threads": 2, "ranks": 1},
         {"threads": 4, "ranks": 1},
+        {"threads": 8, "ranks": 1},
+        {"threads": 16, "ranks": 1},
         {"threads": 1, "ranks": 2},
-        {"threads": 1, "ranks": 4}
+        {"threads": 1, "ranks": 4},
+        {"threads": 1, "ranks": 8},
+        {"threads": 1, "ranks": 16}
       ]
     },
     "output_cost": {

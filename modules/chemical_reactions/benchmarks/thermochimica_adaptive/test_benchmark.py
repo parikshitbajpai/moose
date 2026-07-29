@@ -34,6 +34,10 @@ class BenchmarkTests(unittest.TestCase):
             benchmark.utilization_counts(row),
             (100.0, 10.0, 50.0, 5.0, 35.0),
         )
+        self.assertEqual(
+            benchmark.query_state_percent(row, "surrogate_hits_median"),
+            50.0,
+        )
 
     def test_profile_keeps_invalid_problems_in_denominator(self):
         _, fractions = benchmark.profile_curve([1.0, math.inf], 2)
@@ -153,6 +157,37 @@ class BenchmarkTests(unittest.TestCase):
             command[:4],
             ["/usr/bin/srun", "-n", "1", "/tmp/moose-dev-exec"],
         )
+
+    def test_binary_smooth_trajectory_is_not_grid_aligned(self):
+        study = {
+            "case": "binary_smooth",
+            "axis": "mesh",
+            "values": [10000, 100000],
+        }
+        configs = benchmark.expand_study("mesh", study)
+        for config in configs:
+            displacement_in_cells = (
+                config["temporal_displacement"]
+                * config["mesh"]
+                / (config["composition_max"] - config["composition_min"])
+            )
+            self.assertFalse(
+                math.isclose(
+                    displacement_in_cells,
+                    round(displacement_in_cells),
+                    rel_tol=0.0,
+                    abs_tol=1e-12,
+                )
+            )
+
+    def test_full_parallel_study_reaches_sixteen_threads_and_ranks(self):
+        study = benchmark.load_manifest("full")["studies"]["parallel"]
+        topologies = {
+            (int(value["threads"]), int(value["ranks"]))
+            for value in study["values"]
+        }
+        self.assertIn((16, 1), topologies)
+        self.assertIn((1, 16), topologies)
 
 
 if __name__ == "__main__":

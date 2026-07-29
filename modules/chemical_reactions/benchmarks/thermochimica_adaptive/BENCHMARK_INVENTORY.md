@@ -49,8 +49,8 @@ Every adaptive configuration is paired with an exact
 | Temperature | 2250 K |
 | Pressure | 1 atm |
 | Composition unit | moles |
-| Mo | \(0.2+0.1x+0.00037t\) |
-| Ru | \(0.8-0.1x-0.00037t\) |
+| Mo | \(0.2+0.1x+\sqrt{2}(0.00037)t\) |
+| Ru | \(0.8-0.1x-\sqrt{2}(0.00037)t\) |
 | Total amount | 1 mole |
 | Recorded outputs | BCC/HCP amounts and fractions, Mo potential, system Gibbs energy |
 

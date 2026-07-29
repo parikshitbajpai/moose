@@ -27,6 +27,10 @@ CASES = ROOT / "cases"
 MANIFESTS = ROOT / "manifests"
 PLOT_STYLE = ROOT / "report.mplstyle"
 
+BINARY_SMOOTH_COMPOSITION_MIN = 0.2
+BINARY_SMOOTH_COMPOSITION_MAX = 0.3
+BINARY_SMOOTH_QUERY_SLOPE = math.sqrt(2.0) * 0.00037
+
 METHOD_LABELS = {
     "exact_gem": "Full GEM",
     "exact": "Full GEM",
@@ -507,7 +511,8 @@ def calibrate_absolute_tolerances(
 
 def validate_nonoverlapping_trajectory(config: dict[str, Any]) -> None:
     """Reject population/query grids that contain identical composition coordinates."""
-    if config.get("case") != "binary_comparison":
+    required = ("composition_min", "composition_max", "temporal_displacement")
+    if any(config.get(field) is None for field in required):
         return
     span = config["composition_max"] - config["composition_min"]
     if span <= 0.0:
@@ -599,6 +604,12 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
                     "ranks": 1,
                     "exact_only": bool(study.get("exact_only", False)),
                 }
+                if case == "binary_smooth":
+                    config.update(
+                        composition_min=BINARY_SMOOTH_COMPOSITION_MIN,
+                        composition_max=BINARY_SMOOTH_COMPOSITION_MAX,
+                        temporal_displacement=BINARY_SMOOTH_QUERY_SLOPE,
+                    )
                 configured_elements = study.get("chemical_elements")
                 if isinstance(configured_elements, dict) and case in configured_elements:
                     config["chemical_elements"] = int(configured_elements[case])
@@ -627,6 +638,7 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
                     config["axis_value"] = case
                 else:
                     raise ValueError(f"Unsupported study axis '{axis}'")
+                validate_nonoverlapping_trajectory(config)
                 configs.append(config)
     return configs
 
@@ -672,6 +684,14 @@ def command_for(
                 f"ICs/ru/function={ru_initial}",
                 f"AuxKernels/mo/function={mo_query}",
                 f"AuxKernels/ru/function={ru_query}",
+            ]
+        )
+    elif config["case"] == "binary_smooth":
+        slope = config.get("temporal_displacement", BINARY_SMOOTH_QUERY_SLOPE)
+        command.extend(
+            [
+                f"AuxKernels/mo/function=0.2+0.1*x+{slope:.17g}*t",
+                f"AuxKernels/ru/function=0.8-0.1*x-{slope:.17g}*t",
             ]
         )
     if config.get("surrogate_absolute_tolerances"):
@@ -1315,6 +1335,13 @@ def utilization_counts(row: dict[str, str]) -> tuple[float, float, float, float,
     return states, reuse, approximate, audits, fallback
 
 
+def query_state_percent(row: dict[str, str], field: str) -> float:
+    """Return a query utilization counter as a percentage of evaluated states."""
+    states = max(finite_float(row, "states_median", 0.0), 0.0)
+    count = max(finite_float(row, field, 0.0), 0.0)
+    return 100.0 * count / states if states else 0.0
+
+
 def report_results(directory: Path) -> None:
     """Create the correctness-gated tables used by every capability figure."""
     summary = load_csv(directory / "summary.csv")
@@ -1726,11 +1753,7 @@ def plot_results(directory: Path) -> None:
         adaptive = sorted((row for row in elements if row["mode"] == "adaptive"), key=numeric_axis)
         axes[1].plot(
             [numeric_axis(row) for row in adaptive],
-            [
-                100 * float(row["surrogate_hits_median"])
-                / max(float(row["surrogate_hits_median"]) + float(row["exact_solves_median"]), 1)
-                for row in adaptive
-            ],
+            [query_state_percent(row, "surrogate_hits_median") for row in adaptive],
             "o-",
         )
         axes[0].set(xlabel="Chemical elements", ylabel="Query worker time (s)")
@@ -1740,41 +1763,110 @@ def plot_results(directory: Path) -> None:
         save_figure(figure, figures, "element_scaling")
         plt.close(figure)
 
-    parallel = [row for row in summary if row["axis"] == "parallel" and row["mode"] == "adaptive"]
+    parallel = [row for row in summary if row["axis"] == "parallel"]
     if parallel:
-        figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
-        for case in sorted({row["case"] for row in parallel}):
-            for topology, field in (("threads", "threads"), ("ranks", "ranks")):
-                selected = [
-                    row
-                    for row in parallel
-                    if row["case"] == case
-                    and ((topology == "threads" and int(row["ranks"]) == 1)
-                         or (topology == "ranks" and int(row["threads"]) == 1))
-                ]
-                selected.sort(key=lambda row: int(row[field]))
-                if not selected:
-                    continue
-                base = float(selected[0]["wall_time_median"])
-                counts = [int(row[field]) for row in selected]
-                speedups = [base / float(row["wall_time_median"]) for row in selected]
-                label = f"{case}:{topology}"
-                axes[0].plot(counts, speedups, "o-", label=label)
-                axes[1].plot(counts, [speedup / count for speedup, count in zip(speedups, counts)], "o-", label=label)
-                axes[2].plot(
-                    counts,
-                    [
-                        100 * float(row["surrogate_hits_median"])
-                        / max(float(row["surrogate_hits_median"]) + float(row["exact_solves_median"]), 1)
-                        for row in selected
-                    ],
-                    "o-",
-                    label=label,
-                )
-        axes[0].set(xlabel="Workers", ylabel="Wall-time speedup")
-        axes[1].set(xlabel="Workers", ylabel="Parallel efficiency")
-        axes[2].set(xlabel="Workers", ylabel="Surrogate hit rate (%)")
-        axes[0].legend(fontsize="small")
+        cases = sorted({row["case"] for row in parallel})
+        figure, axes = plt.subplots(len(cases), 3, figsize=(14, 4.0 * len(cases)), squeeze=False)
+        topology_styles = {
+            "threads": ("#0072B2", "o", "1 MPI rank x N MOOSE threads"),
+            "ranks": ("#D55E00", "s", "N MPI ranks x 1 MOOSE thread"),
+        }
+        for case_index, case in enumerate(cases):
+            case_axes = axes[case_index]
+            max_count = 1
+            # Draw the larger hollow thread markers last so coincident MPI results remain visible.
+            for topology, field in (("ranks", "ranks"), ("threads", "threads")):
+                color, marker, topology_label = topology_styles[topology]
+                for mode, linestyle in (("exact", "--"), ("adaptive", "-")):
+                    selected = [
+                        row
+                        for row in parallel
+                        if row["case"] == case
+                        and row["mode"] == mode
+                        and (
+                            (topology == "threads" and int(row["ranks"]) == 1)
+                            or (topology == "ranks" and int(row["threads"]) == 1)
+                        )
+                    ]
+                    selected.sort(key=lambda row: int(row[field]))
+                    if not selected:
+                        continue
+                    counts = [int(row[field]) for row in selected]
+                    max_count = max(max_count, *counts)
+                    base = float(selected[0]["wall_time_median"])
+                    speedups = [base / float(row["wall_time_median"]) for row in selected]
+                    mode_label = "Full GEM" if mode == "exact" else "adaptive"
+                    case_axes[0].plot(
+                        counts,
+                        speedups,
+                        color=color,
+                        marker=marker,
+                        linestyle=linestyle,
+                        markerfacecolor=(
+                            "none" if mode == "exact" or topology == "threads" else color
+                        ),
+                        markersize=7 if topology == "threads" else 5,
+                        label=f"{topology_label}, {mode_label}",
+                    )
+                    case_axes[1].plot(
+                        counts,
+                        [speedup / count for speedup, count in zip(speedups, counts)],
+                        color=color,
+                        marker=marker,
+                        linestyle=linestyle,
+                        markerfacecolor=(
+                            "none" if mode == "exact" or topology == "threads" else color
+                        ),
+                        markersize=7 if topology == "threads" else 5,
+                    )
+                    if mode == "adaptive":
+                        case_axes[2].plot(
+                            counts,
+                            [
+                                query_state_percent(row, "surrogate_hits_median")
+                                for row in selected
+                            ],
+                            color=color,
+                            marker=marker,
+                            linestyle="-",
+                            markerfacecolor="none" if topology == "threads" else color,
+                            markersize=7 if topology == "threads" else 5,
+                            label=f"{topology_label}, surrogate",
+                        )
+                        case_axes[2].plot(
+                            counts,
+                            [
+                                query_state_percent(row, "exact_reuse_hits_median")
+                                for row in selected
+                            ],
+                            color=color,
+                            marker=marker,
+                            linestyle=":",
+                            markerfacecolor="none",
+                            label=f"{topology_label}, exact reuse",
+                        )
+            case_axes[0].plot(
+                [1, max_count], [1, max_count], color="0.5", linestyle=":", label="ideal"
+            )
+            case_axes[0].set(
+                title=case.replace("_", " "),
+                xlabel="MOOSE thread or MPI rank count",
+                ylabel="Wall-time speedup",
+            )
+            case_axes[1].set(
+                title=case.replace("_", " "),
+                xlabel="MOOSE thread or MPI rank count",
+                ylabel="Strong-scaling efficiency",
+                ylim=(0.0, 1.05),
+            )
+            case_axes[2].set(
+                title=case.replace("_", " "),
+                xlabel="MOOSE thread or MPI rank count",
+                ylabel="Adaptive query-state fraction (%)",
+                ylim=(0.0, 105.0),
+            )
+            case_axes[0].legend(fontsize="x-small")
+            case_axes[2].legend(fontsize="x-small")
         save_figure(figure, figures, "parallel_scaling")
         plt.close(figure)
 

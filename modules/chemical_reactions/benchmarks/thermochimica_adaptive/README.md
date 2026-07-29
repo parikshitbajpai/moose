@@ -249,10 +249,12 @@ their reproducibility difference and a floating-point precision floor. Any manif
 recorded explicitly. A capability result is accurate only if every sampled normalized error is at
 most one and audit/restoration counters remain zero.
 
-`worker_solve_time` isolates the Thermochimica worker, while `wall_time` includes process startup,
-mesh setup, cache training, query evaluation, sampling, and output. The capability gate requires
-valid sampled accuracy, at least 50% fewer exact GEM calls, and at least 2x total wall-time
-speedup. Worker speedup is diagnostic and cannot by itself pass the gate.
+`worker_solve_time` isolates calculations in the forked Thermochimica process, while `wall_time`
+includes process startup, mesh setup, cache training, query evaluation, sampling, and output. Each
+MOOSE thread owns one such process, so a run uses `MPI ranks x MOOSE threads per rank`
+Thermochimica processes. The capability gate requires valid sampled accuracy, at least 50% fewer
+exact GEM calls, and at least 2x total wall-time speedup. Worker-process speedup is diagnostic and
+cannot by itself pass the gate.
 
 Query-state utilization is partitioned into exact cache reuse, published surrogate results,
 audited exact results, and exact fallback. `exact_solves / states` is reported separately because
@@ -260,8 +262,11 @@ cold retries can add GEM calls without adding evaluated states.
 
 `matplotlib` is required for plots. If `psutil` is installed, the driver samples the aggregate
 resident memory of the application process tree; otherwise the RSS field is empty. Thread and MPI
-studies use a fixed total mesh size. Because adaptive caches remain worker-local, their hit counts
-and exact solve counts are allowed to vary with the worker count.
+studies use a fixed total mesh size and report MOOSE-thread and MPI-rank counts separately.
+Because each adaptive cache remains local to one forked Thermochimica process, its state history
+is partitioned by both forms of decomposition. The parallel plot compares Full GEM and adaptive
+strong scaling from 1 through 16 threads or ranks and reports surrogate retrieval separately from
+exact-coordinate cache reuse.
 
 By default a failed full-tier topology is recorded and the remaining configurations continue. Use
 `--fail-fast` for debugging. This is particularly useful for worker-startup limitations that may

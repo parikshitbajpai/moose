@@ -57,13 +57,14 @@
   [mo]
     type = FunctionAux
     variable = Mo
-    function = '0.2 + 0.1*x + 0.00037*t'
+    # The irrational slope prevents population/query grids from becoming exactly aligned.
+    function = '0.2 + 0.1*x + 0.0005232590180780452*t'
     execute_on = 'initial timestep_begin'
   []
   [ru]
     type = FunctionAux
     variable = Ru
-    function = '0.8 - 0.1*x - 0.00037*t'
+    function = '0.8 - 0.1*x - 0.0005232590180780452*t'
     execute_on = 'initial timestep_begin'
   []
 []
