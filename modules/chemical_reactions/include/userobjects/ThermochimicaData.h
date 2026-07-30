@@ -94,6 +94,8 @@ protected:
     unsigned int ellipsoid_shrinks = 0;
     unsigned int neural_batches = 0;
     unsigned int neural_out_of_bounds = 0;
+    unsigned int neural_support_rejections = 0;
+    unsigned int neural_phase_rejections = 0;
     unsigned int neural_disabled = 0;
     std::size_t sensitivity_bytes = 0;
     int worker_status = 0;
@@ -263,6 +265,8 @@ protected:
   unsigned long _ellipsoid_shrinks = 0;
   unsigned long _neural_batches = 0;
   unsigned long _neural_out_of_bounds = 0;
+  unsigned long _neural_support_rejections = 0;
+  unsigned long _neural_phase_rejections = 0;
   unsigned long _neural_disabled_workers = 0;
   std::size_t _sensitivity_bytes = 0;
   bool _cache_saturated = false;
@@ -288,9 +292,35 @@ protected:
 #endif
   bool _worker_has_previous_solve = false;
 #ifdef MOOSE_LIBTORCH_ENABLED
+  struct NeuralPhaseGate
+  {
+    std::size_t output_index;
+    std::size_t logit_index;
+    Real presence_threshold;
+  };
+
+  struct NeuralInvariantGroup
+  {
+    std::vector<std::size_t> output_indices;
+    Real target;
+    Real tolerance;
+  };
+
+  struct NeuralSupportGate
+  {
+    std::vector<unsigned char> signature;
+    std::size_t distance_index;
+    Real radius;
+  };
+
   std::unique_ptr<torch::jit::script::Module> _neural_model;
   std::vector<Real> _neural_lower_bounds;
   std::vector<Real> _neural_upper_bounds;
+  std::vector<NeuralPhaseGate> _neural_phase_gates;
+  std::vector<NeuralInvariantGroup> _neural_invariant_groups;
+  std::vector<NeuralSupportGate> _neural_support_gates;
+  std::size_t _neural_model_output_width = 0;
+  Real _neural_phase_confidence = 0.0;
   bool _neural_disabled = false;
 #endif
 };

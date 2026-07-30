@@ -256,6 +256,8 @@ ThermochimicaData::initialize()
   _ellipsoid_shrinks = 0;
   _neural_batches = 0;
   _neural_out_of_bounds = 0;
+  _neural_support_rejections = 0;
+  _neural_phase_rejections = 0;
   _neural_disabled_workers = 0;
   _cache_saturated = false;
   _solve_seconds = 0;
@@ -422,6 +424,8 @@ ThermochimicaData::threadJoin(const UserObject & other)
   _ellipsoid_shrinks += data._ellipsoid_shrinks;
   _neural_batches += data._neural_batches;
   _neural_out_of_bounds += data._neural_out_of_bounds;
+  _neural_support_rejections += data._neural_support_rejections;
+  _neural_phase_rejections += data._neural_phase_rejections;
   _neural_disabled_workers += data._neural_disabled_workers;
   _sensitivity_bytes += data._sensitivity_bytes;
   _cache_saturated = _cache_saturated || data._cache_saturated;
@@ -465,6 +469,8 @@ ThermochimicaData::finalize()
              << ", ellipsoid_shrinks=" << _ellipsoid_shrinks
              << ", neural_batches=" << _neural_batches
              << ", neural_out_of_bounds=" << _neural_out_of_bounds
+             << ", neural_support_rejections=" << _neural_support_rejections
+             << ", neural_phase_rejections=" << _neural_phase_rejections
              << ", neural_disabled_workers=" << _neural_disabled_workers
              << ", neural_inference_time=" << _neural_inference_seconds << " s"
              << ", sensitivity_bytes=" << _sensitivity_bytes
@@ -646,6 +652,8 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _header->ellipsoid_shrinks = 0;
   _header->neural_batches = 0;
   _header->neural_out_of_bounds = 0;
+  _header->neural_support_rejections = 0;
+  _header->neural_phase_rejections = 0;
   _header->neural_disabled = 0;
   _header->sensitivity_bytes = 0;
   _header->solve_seconds = 0;
@@ -702,6 +710,8 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _ellipsoid_shrinks += _header->ellipsoid_shrinks;
   _neural_batches += _header->neural_batches;
   _neural_out_of_bounds += _header->neural_out_of_bounds;
+  _neural_support_rejections += _header->neural_support_rejections;
+  _neural_phase_rejections += _header->neural_phase_rejections;
   _neural_disabled_workers += _header->neural_disabled;
   _sensitivity_bytes = _header->sensitivity_bytes;
   _cache_saturated = _cache_saturated || _header->cache_saturated;
@@ -809,7 +819,8 @@ ThermochimicaData::initializeNeuralSurrogate()
     }
 
     const auto metadata = nlohmann::json::parse(extra_files["metadata.json"]);
-    if (metadata.value("schema_version", 0) != 1 ||
+    const auto schema_version = metadata.value("schema_version", 0);
+    if ((schema_version != 1 && schema_version != 2) ||
         metadata.value("archive_type", "") != "thermochimica_neural_torchscript")
     {
       fail("unsupported neural surrogate archive schema");
@@ -946,6 +957,109 @@ ThermochimicaData::initializeNeuralSurrogate()
       return;
     }
 
+    _neural_model_output_width = _configuration->outputWidth();
+    _neural_phase_gates.clear();
+    _neural_invariant_groups.clear();
+    _neural_support_gates.clear();
+    _neural_phase_confidence = 0.0;
+    if (schema_version == 2)
+    {
+      const auto & layout = metadata.at("model_output_layout");
+      const auto regression_width = layout.value("regression_width", std::size_t(0));
+      const auto phase_offset = layout.value("phase_logit_offset", std::size_t(0));
+      const auto phase_count = layout.value("phase_logit_count", std::size_t(0));
+      const auto support_offset =
+          layout.value("support_distance_offset", std::numeric_limits<std::size_t>::max());
+      const auto support_count = layout.value("support_distance_count", std::size_t(0));
+      if (regression_width != _configuration->outputWidth() ||
+          phase_offset != regression_width ||
+          support_offset != phase_offset + phase_count || support_count == 0)
+      {
+        fail("neural surrogate schema-2 output layout is inconsistent");
+        return;
+      }
+      _neural_model_output_width = support_offset + support_count;
+
+      const auto & phase_gate = metadata.at("phase_gate");
+      _neural_phase_confidence = phase_gate.value("confidence_threshold", Real(-1));
+      const auto & phases = phase_gate.at("phases");
+      if (!phases.is_array() || phases.size() != phase_count ||
+          !std::isfinite(_neural_phase_confidence) || _neural_phase_confidence < 0.5 ||
+          _neural_phase_confidence > 1.0)
+      {
+        fail("neural surrogate phase gate is inconsistent");
+        return;
+      }
+      for (const auto phase : index_range(phases))
+      {
+        const auto output_index =
+            phases[phase].value("output_index", std::numeric_limits<std::size_t>::max());
+        const auto threshold = phases[phase].value("presence_threshold", Real(-1));
+        if (output_index >= _configuration->outputWidth() ||
+            !_configuration->output_nonnegative[output_index] || !std::isfinite(threshold) ||
+            threshold < 0.0)
+        {
+          fail("neural surrogate phase gate references an invalid phase-amount output");
+          return;
+        }
+        _neural_phase_gates.push_back(
+            {output_index, phase_offset + phase, threshold});
+      }
+
+      const auto & assemblages = metadata.at("support").at("assemblages");
+      if (!assemblages.is_array() || assemblages.size() != support_count)
+      {
+        fail("neural surrogate support assemblages are inconsistent");
+        return;
+      }
+      std::vector<bool> support_columns_seen(support_count, false);
+      for (const auto & assemblage : assemblages)
+      {
+        const auto raw_signature = assemblage.at("signature").get<std::vector<unsigned int>>();
+        const auto distance_index =
+            assemblage.value("distance_index", std::numeric_limits<std::size_t>::max());
+        const auto radius = assemblage.value("radius", Real(-1));
+        if (raw_signature.size() != phase_count || distance_index < support_offset ||
+            distance_index >= support_offset + support_count || !std::isfinite(radius) ||
+            radius <= 0.0 ||
+            support_columns_seen[distance_index - support_offset] ||
+            std::any_of(raw_signature.begin(),
+                        raw_signature.end(),
+                        [](const auto value) { return value > 1; }))
+        {
+          fail("neural surrogate support assemblage is invalid");
+          return;
+        }
+        support_columns_seen[distance_index - support_offset] = true;
+        std::vector<unsigned char> signature(raw_signature.begin(), raw_signature.end());
+        _neural_support_gates.push_back({std::move(signature), distance_index, radius});
+      }
+
+      const auto groups = metadata.value("invariant_groups", nlohmann::json::array());
+      if (!groups.is_array())
+      {
+        fail("neural surrogate invariant groups must be an array");
+        return;
+      }
+      for (const auto & group : groups)
+      {
+        const auto indices = group.at("output_indices").get<std::vector<std::size_t>>();
+        const auto target = group.value("target", Real(1));
+        const auto tolerance = group.value("tolerance", Real(-1));
+        if (indices.empty() ||
+            std::any_of(indices.begin(),
+                        indices.end(),
+                        [this](const auto index)
+                        { return index >= _configuration->outputWidth(); }) ||
+            !std::isfinite(target) || !std::isfinite(tolerance) || tolerance < 0.0)
+        {
+          fail("neural surrogate invariant group is invalid");
+          return;
+        }
+        _neural_invariant_groups.push_back({indices, target, tolerance});
+      }
+    }
+
     torch::set_num_threads(1);
     _neural_model = std::make_unique<torch::jit::script::Module>(std::move(module));
   }
@@ -1028,7 +1142,7 @@ ThermochimicaData::evaluateNeuralBatch()
               .clone();
       auto prediction = _neural_model->forward({tensor}).toTensor().to(torch::kCPU).contiguous();
       if (prediction.dim() != 2 || prediction.size(0) != static_cast<long>(rows.size()) ||
-          prediction.size(1) != static_cast<long>(_configuration->outputWidth()))
+          prediction.size(1) != static_cast<long>(_neural_model_output_width))
         throw std::runtime_error("model returned an unexpected tensor shape");
       const auto values = prediction.accessor<float, 2>();
       ++_header->neural_batches;
@@ -1059,6 +1173,70 @@ ThermochimicaData::evaluateNeuralBatch()
           result[output] = value;
         }
         if (!valid)
+        {
+          ++_header->invariant_rejections;
+          continue;
+        }
+
+        bool phase_valid = true;
+        std::vector<unsigned char> phase_signature;
+        phase_signature.reserve(_neural_phase_gates.size());
+        for (const auto & gate : _neural_phase_gates)
+        {
+          const Real logit = values[index][gate.logit_index];
+          if (!std::isfinite(logit))
+          {
+            phase_valid = false;
+            break;
+          }
+          const Real probability =
+              logit >= 0.0 ? 1.0 / (1.0 + std::exp(-logit))
+                           : std::exp(logit) / (1.0 + std::exp(logit));
+          const bool classified_present = probability >= 0.5;
+          phase_signature.push_back(classified_present);
+          const bool regressed_present = values[index][gate.output_index] > gate.presence_threshold;
+          if (std::max(probability, 1.0 - probability) < _neural_phase_confidence ||
+              classified_present != regressed_present)
+          {
+            phase_valid = false;
+            break;
+          }
+        }
+        if (!phase_valid)
+        {
+          ++_header->neural_phase_rejections;
+          continue;
+        }
+
+        if (!_neural_support_gates.empty())
+        {
+          const auto support_gate =
+              std::find_if(_neural_support_gates.begin(),
+                           _neural_support_gates.end(),
+                           [&phase_signature](const auto & gate)
+                           { return gate.signature == phase_signature; });
+          if (support_gate == _neural_support_gates.end() ||
+              !std::isfinite(values[index][support_gate->distance_index]) ||
+              values[index][support_gate->distance_index] > support_gate->radius)
+          {
+            ++_header->neural_support_rejections;
+            continue;
+          }
+        }
+
+        bool coupled_invariants_valid = true;
+        for (const auto & group : _neural_invariant_groups)
+        {
+          Real sum = 0.0;
+          for (const auto output : group.output_indices)
+            sum += result[output];
+          if (!std::isfinite(sum) || std::abs(sum - group.target) > group.tolerance)
+          {
+            coupled_invariants_valid = false;
+            break;
+          }
+        }
+        if (!coupled_invariants_valid)
         {
           ++_header->invariant_rejections;
           continue;
@@ -1108,6 +1286,8 @@ ThermochimicaData::evaluateNeuralBatch()
             }
           }
         }
+        if (_neural_disabled)
+          break;
       }
     }
     catch (const std::exception &)
