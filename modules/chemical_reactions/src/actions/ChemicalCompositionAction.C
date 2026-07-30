@@ -96,8 +96,10 @@ ChemicalCompositionAction::validParams()
   params.addParam<MooseEnum>(
       "acceleration", MooseEnum("exact adaptive", "exact"), "Equilibrium evaluation strategy");
   params.addParam<MooseEnum>("surrogate_model",
-                             MooseEnum("local_idw kkt_linear", "local_idw"),
+                             MooseEnum("local_idw kkt_linear neural", "local_idw"),
                              "Adaptive prediction model");
+  params.addParam<FileName>(
+      "surrogate_archive", "TorchScript archive used by the neural surrogate model");
   params.addRangeCheckedParam<unsigned int>(
       "batch_size", 32, "batch_size > 0", "Number of states sent to each worker request");
   params.addRangeCheckedParam<unsigned int>("cache_max_entries",
@@ -179,10 +181,15 @@ ChemicalCompositionAction::initializeConfiguration()
   std::replace(config.composition_unit.begin(), config.composition_unit.end(), '_', ' ');
   auto coupledInput = [this](const std::string & parameter)
   {
-    if (this->parameters().hasDefaultCoupledValue(parameter))
-      return Moose::stringify(this->parameters().defaultCoupledValue(parameter));
-    const auto & variables = getParam<std::vector<VariableName>>(parameter);
-    return std::string(variables.front());
+    if (isParamValid(parameter))
+    {
+      const auto & variables = getParam<std::vector<VariableName>>(parameter);
+      if (!variables.empty())
+        return std::string(variables.front());
+    }
+    mooseAssert(this->parameters().hasDefaultCoupledValue(parameter),
+                "An uncoupled Thermochimica input must have a default value");
+    return Moose::stringify(this->parameters().defaultCoupledValue(parameter));
   };
   config.temperature = coupledInput("temperature");
   config.pressure = coupledInput("pressure");
@@ -195,9 +202,22 @@ ChemicalCompositionAction::initializeConfiguration()
   config.acceleration = getParam<MooseEnum>("acceleration") == "adaptive"
                             ? ThermochimicaConfiguration::Acceleration::ADAPTIVE
                             : ThermochimicaConfiguration::Acceleration::EXACT;
-  config.surrogate_model = getParam<MooseEnum>("surrogate_model") == "kkt_linear"
-                               ? ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR
-                               : ThermochimicaConfiguration::SurrogateModel::LOCAL_IDW;
+  const auto surrogate_model = getParam<MooseEnum>("surrogate_model");
+  if (surrogate_model == "kkt_linear")
+    config.surrogate_model = ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR;
+  else if (surrogate_model == "neural")
+  {
+    config.surrogate_model = ThermochimicaConfiguration::SurrogateModel::NEURAL;
+    if (!isParamValid("surrogate_archive"))
+      paramError("surrogate_archive", "A neural surrogate requires a TorchScript archive.");
+#ifndef MOOSE_LIBTORCH_ENABLED
+    paramError("surrogate_model",
+               "The neural surrogate requires MOOSE to be configured with libtorch support.");
+#endif
+    config.surrogate_archive = getParam<FileName>("surrogate_archive");
+  }
+  else
+    config.surrogate_model = ThermochimicaConfiguration::SurrogateModel::LOCAL_IDW;
   config.composition_is_fraction = config.composition_unit == "mole fraction" ||
                                    config.composition_unit == "atom fraction" ||
                                    config.composition_unit == "mass fraction";

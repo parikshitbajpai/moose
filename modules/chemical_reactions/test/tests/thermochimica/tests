@@ -403,6 +403,28 @@
     capabilities = 'thermochimica'
   []
 
+  [neural_archive_required]
+    type = RunException
+    input = MoRu.i
+    cli_args = 'ChemicalComposition/thermo/acceleration=adaptive ChemicalComposition/thermo/surrogate_model=neural'
+    expect_err = 'A neural surrogate requires a TorchScript archive.'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The neural Thermochimica surrogate shall require an explicit archive.'
+    capabilities = 'thermochimica libtorch'
+  []
+
+  [neural_metadata_required]
+    type = RunException
+    input = MoRu.i
+    cli_args = 'ChemicalComposition/thermo/acceleration=adaptive ChemicalComposition/thermo/surrogate_model=neural ChemicalComposition/thermo/surrogate_archive=../../../../../test/tests/utils/libtorch_nn/torch_script/my_net.pt'
+    expect_err = 'neural surrogate archive does not contain metadata.json'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The neural Thermochimica surrogate shall reject a TorchScript archive without its deployment metadata.'
+    capabilities = 'thermochimica libtorch'
+  []
+
   [adaptive_interpolation]
     type = RunApp
     input = adaptive_interpolation.i

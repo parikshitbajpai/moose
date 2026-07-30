@@ -1,0 +1,73 @@
+{
+  "database": "../thermochimica_adaptive/MSDTC_41_fluorides.dat",
+  "temperature_column": "temperature",
+  "pressure_column": "pressure",
+  "temperature_unit": "K",
+  "pressure_unit": "Pa",
+  "composition_unit": "moles",
+  "elements": ["U", "Zr", "F", "Be", "Li"],
+  "outputs": [
+    {
+      "type": "element_potential",
+      "variable": "f_potential",
+      "element": "F",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "phase",
+      "variable": "gas_amount",
+      "phase": "gas_ideal",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "gas_fraction",
+      "phase": "gas_ideal",
+      "extensive": false,
+      "nonnegative": true,
+      "fraction": true,
+      "absolute_tolerance": 0.001,
+      "relative_tolerance": 0.0
+    },
+    {
+      "type": "phase",
+      "variable": "msfl_amount",
+      "phase": "MSFL",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "msfl_fraction",
+      "phase": "MSFL",
+      "extensive": false,
+      "nonnegative": true,
+      "fraction": true,
+      "absolute_tolerance": 0.001,
+      "relative_tolerance": 0.0
+    },
+    {
+      "type": "system_gibbs",
+      "variable": "system_gibbs",
+      "extensive": true,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    }
+  ],
+  "epochs": 3000,
+  "patience": 200,
+  "learning_rate": 0.001,
+  "validation_fraction": 0.2,
+  "seed": 11
+}

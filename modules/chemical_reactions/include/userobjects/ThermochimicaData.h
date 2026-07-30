@@ -21,6 +21,10 @@
 #include <unordered_map>
 #include <sys/types.h>
 
+#ifdef MOOSE_LIBTORCH_ENABLED
+#include <torch/script.h>
+#endif
+
 #ifdef THERMOCHIMICA_ENABLED
 #include "Thermochimica-cxx.h"
 #endif
@@ -88,10 +92,15 @@ protected:
     unsigned int linear_retrieves = 0;
     unsigned int ellipsoid_growths = 0;
     unsigned int ellipsoid_shrinks = 0;
+    unsigned int neural_batches = 0;
+    unsigned int neural_out_of_bounds = 0;
+    unsigned int neural_disabled = 0;
     std::size_t sensitivity_bytes = 0;
     int worker_status = 0;
     Real solve_seconds = 0;
     Real sensitivity_seconds = 0;
+    Real neural_inference_seconds = 0;
+    char worker_error[512] = {};
   };
 
   enum class Command : unsigned int
@@ -104,7 +113,11 @@ protected:
   void destroyWorker();
   [[noreturn]] void workerLoop();
   void initializeThermochimica();
-  int solveRow(unsigned int row);
+  int solveRow(unsigned int row, bool allow_prediction = true);
+#ifdef MOOSE_LIBTORCH_ENABLED
+  void initializeNeuralSurrogate();
+  void evaluateNeuralBatch();
+#endif
 #ifdef THERMOCHIMICA_ENABLED
   struct CacheRecord
   {
@@ -248,10 +261,14 @@ protected:
   unsigned long _linear_retrieves = 0;
   unsigned long _ellipsoid_growths = 0;
   unsigned long _ellipsoid_shrinks = 0;
+  unsigned long _neural_batches = 0;
+  unsigned long _neural_out_of_bounds = 0;
+  unsigned long _neural_disabled_workers = 0;
   std::size_t _sensitivity_bytes = 0;
   bool _cache_saturated = false;
   Real _solve_seconds = 0;
   Real _sensitivity_seconds = 0;
+  Real _neural_inference_seconds = 0;
   Real _packing_seconds = 0;
   Real _ipc_seconds = 0;
 
@@ -270,4 +287,10 @@ protected:
   std::size_t _audit_record = std::numeric_limits<std::size_t>::max();
 #endif
   bool _worker_has_previous_solve = false;
+#ifdef MOOSE_LIBTORCH_ENABLED
+  std::unique_ptr<torch::jit::script::Module> _neural_model;
+  std::vector<Real> _neural_lower_bounds;
+  std::vector<Real> _neural_upper_bounds;
+  bool _neural_disabled = false;
+#endif
 };

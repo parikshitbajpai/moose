@@ -1,0 +1,92 @@
+{
+  "database": "../thermochimica_adaptive/MSDTC_41_fluorides.dat",
+  "temperature_column": "temperature",
+  "pressure_column": "pressure",
+  "temperature_unit": "K",
+  "pressure_unit": "bar",
+  "composition_unit": "moles",
+  "elements": ["Fe", "Cr"],
+  "outputs": [
+    {
+      "type": "chemical_potential",
+      "variable": "bcc_cr_potential",
+      "phase": "BCC_A2",
+      "species": "CR:VA",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "chemical_potential",
+      "variable": "bcc_fe_potential",
+      "phase": "BCC_A2",
+      "species": "FE:VA",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "element_potential",
+      "variable": "cr_potential",
+      "element": "Cr",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "element_potential",
+      "variable": "fe_potential",
+      "element": "Fe",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "phase",
+      "variable": "bcc_amount",
+      "phase": "BCC_A2",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "fcc_amount",
+      "phase": "FCC_A1",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "hcp_amount",
+      "phase": "HCP_A3",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "system_gibbs",
+      "variable": "system_gibbs",
+      "extensive": true,
+      "nonnegative": false,
+      "fraction": false,
+      "relative_tolerance": 0.001
+    }
+  ],
+  "epochs": 5000,
+  "patience": 500,
+  "learning_rate": 0.001,
+  "validation_fraction": 0.2,
+  "seed": 11
+}

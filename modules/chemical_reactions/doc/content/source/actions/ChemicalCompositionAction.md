@@ -224,6 +224,17 @@ The [!param](/ChemicalComposition/surrogate_model) selects the adaptive approxim
   ellipsoid of accuracy. Its versioned regime token includes phase instances, phase-model types,
   miscibility identity, and active solution-phase constituents, because any of these active-set
   changes invalidates the fixed-set derivative even when the phase names do not change.
+- `neural` loads the CPU TorchScript file named by
+  [!param](/ChemicalComposition/surrogate_archive). The archive contains its input and output
+  standardization plus metadata that fixes the element order, units, output order, and training
+  bounds. Neural inputs are logarithmic absolute temperature, logarithmic pressure in bar, and
+  normalized element compositions. Extensive outputs are trained at unit total composition and
+  rescaled at evaluation.
+
+The neural model is evaluated once per worker batch. Nonfinite inputs, states outside any recorded
+training bound, invalid tensor shapes, and predictions that violate output invariants fall back to
+exact Thermochimica. Audited rows are also evaluated exactly. If an audit exceeds the configured
+tolerance, neural inference is disabled in that worker for the remainder of the run.
 
 Sensitivity construction and directional output evaluation are transactional: the converged
 Thermochimica state is copied before perturbation and restored without subminimizing inactive

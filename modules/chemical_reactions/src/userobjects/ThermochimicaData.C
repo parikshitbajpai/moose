@@ -28,14 +28,23 @@
 #include <cerrno>
 #include <chrono>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <limits>
 #include <new>
 #include <numeric>
 #include <optional>
+#include <sstream>
 #include <type_traits>
+
+#ifdef MOOSE_LIBTORCH_ENABLED
+#include "nlohmann/json.h"
+#endif
 
 #ifdef THERMOCHIMICA_ENABLED
 #include "Thermochimica-cxx.h"
@@ -47,6 +56,96 @@ registerMooseObject("ChemicalReactionsApp", ThermochimicaData);
 namespace
 {
 Threads::spin_mutex output_mutex;
+Threads::spin_mutex input_mutex;
+
+template <typename Output>
+std::string
+outputVariable(const Output & output)
+{
+  return output.variable;
+}
+
+#ifdef MOOSE_LIBTORCH_ENABLED
+std::string
+sha256File(const std::string & filename)
+{
+  std::ifstream stream(filename, std::ios::binary);
+  if (!stream)
+    throw std::runtime_error("unable to open database for hashing");
+  std::vector<std::uint8_t> message((std::istreambuf_iterator<char>(stream)),
+                                    std::istreambuf_iterator<char>());
+  const std::uint64_t bit_size = static_cast<std::uint64_t>(message.size()) * 8;
+  message.push_back(0x80);
+  while (message.size() % 64 != 56)
+    message.push_back(0);
+  for (const auto shift : {56, 48, 40, 32, 24, 16, 8, 0})
+    message.push_back(static_cast<std::uint8_t>(bit_size >> shift));
+
+  constexpr std::array<std::uint32_t, 64> constants = {
+      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+      0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+      0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+      0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+      0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+      0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+      0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+      0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+      0xc67178f2};
+  std::array<std::uint32_t, 8> hash = {
+      0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+      0x5be0cd19};
+  auto rotate = [](const std::uint32_t value, const unsigned int count)
+  { return (value >> count) | (value << (32 - count)); };
+
+  for (std::size_t offset = 0; offset < message.size(); offset += 64)
+  {
+    std::array<std::uint32_t, 64> words = {};
+    for (const auto i : make_range(16))
+      words[i] = (std::uint32_t(message[offset + 4 * i]) << 24) |
+                 (std::uint32_t(message[offset + 4 * i + 1]) << 16) |
+                 (std::uint32_t(message[offset + 4 * i + 2]) << 8) |
+                 std::uint32_t(message[offset + 4 * i + 3]);
+    for (const auto i : make_range(16, 64))
+    {
+      const auto first =
+          rotate(words[i - 15], 7) ^ rotate(words[i - 15], 18) ^ (words[i - 15] >> 3);
+      const auto second =
+          rotate(words[i - 2], 17) ^ rotate(words[i - 2], 19) ^ (words[i - 2] >> 10);
+      words[i] = words[i - 16] + first + words[i - 7] + second;
+    }
+
+    auto state = hash;
+    for (const auto i : make_range(64))
+    {
+      const auto sum1 =
+          rotate(state[4], 6) ^ rotate(state[4], 11) ^ rotate(state[4], 25);
+      const auto choice = (state[4] & state[5]) ^ (~state[4] & state[6]);
+      const auto temporary1 = state[7] + sum1 + choice + constants[i] + words[i];
+      const auto sum0 =
+          rotate(state[0], 2) ^ rotate(state[0], 13) ^ rotate(state[0], 22);
+      const auto majority =
+          (state[0] & state[1]) ^ (state[0] & state[2]) ^ (state[1] & state[2]);
+      const auto temporary2 = sum0 + majority;
+      for (const auto reverse : make_range(7))
+      {
+        const auto j = 7 - reverse;
+        state[j] = state[j - 1];
+      }
+      state[4] += temporary1;
+      state[0] = temporary1 + temporary2;
+    }
+    for (const auto i : make_range(8))
+      hash[i] += state[i];
+  }
+
+  std::ostringstream result;
+  result << std::hex << std::setfill('0');
+  for (const auto value : hash)
+    result << std::setw(8) << value;
+  return result.str();
+}
+#endif
 
 std::size_t
 alignedOffset(const std::size_t offset, const std::size_t alignment)
@@ -155,9 +254,13 @@ ThermochimicaData::initialize()
   _linear_retrieves = 0;
   _ellipsoid_growths = 0;
   _ellipsoid_shrinks = 0;
+  _neural_batches = 0;
+  _neural_out_of_bounds = 0;
+  _neural_disabled_workers = 0;
   _cache_saturated = false;
   _solve_seconds = 0;
   _sensitivity_seconds = 0;
+  _neural_inference_seconds = 0;
   _packing_seconds = 0;
   _ipc_seconds = 0;
 }
@@ -239,10 +342,15 @@ ThermochimicaData::execute()
     const libMesh::Elem * elem = nullptr;
     if constexpr (std::is_same_v<std::decay_t<decltype(entity)>, libMesh::Elem>)
       elem = &entity;
-    input[0] = inputValue(_temperature, _nodal, elem);
-    input[1] = inputValue(_pressure, _nodal, elem);
-    for (const auto i : index_range(_elements))
-      input[2 + i] = inputValue({_elements[i], 0}, _nodal, elem);
+    {
+      Threads::spin_mutex::scoped_lock lock(input_mutex);
+      if constexpr (!std::is_same_v<std::decay_t<decltype(entity)>, libMesh::Elem>)
+        _fe_problem.reinitNode(&entity, _tid);
+      input[0] = inputValue(_temperature, _nodal, elem);
+      input[1] = inputValue(_pressure, _nodal, elem);
+      for (const auto i : index_range(_elements))
+        input[2 + i] = inputValue({_elements[i], 0}, _nodal, elem);
+    }
     _packing_seconds +=
         std::chrono::duration<Real>(std::chrono::steady_clock::now() - packing_start).count();
 
@@ -262,7 +370,6 @@ ThermochimicaData::execute()
       const auto & node = **it;
       if (!ownsEntity(node.id()) || !includesNode(node))
         continue;
-      _fe_problem.reinitNode(&node, _tid);
       store_inputs(node);
     }
   }
@@ -274,7 +381,6 @@ ThermochimicaData::execute()
       const auto & elem = **it;
       if (!ownsEntity(elem.id()) || !includesElement(elem))
         continue;
-      _fe_problem.reinitElem(&elem, _tid);
       store_inputs(elem);
     }
   }
@@ -314,10 +420,14 @@ ThermochimicaData::threadJoin(const UserObject & other)
   _linear_retrieves += data._linear_retrieves;
   _ellipsoid_growths += data._ellipsoid_growths;
   _ellipsoid_shrinks += data._ellipsoid_shrinks;
+  _neural_batches += data._neural_batches;
+  _neural_out_of_bounds += data._neural_out_of_bounds;
+  _neural_disabled_workers += data._neural_disabled_workers;
   _sensitivity_bytes += data._sensitivity_bytes;
   _cache_saturated = _cache_saturated || data._cache_saturated;
   _solve_seconds += data._solve_seconds;
   _sensitivity_seconds += data._sensitivity_seconds;
+  _neural_inference_seconds += data._neural_inference_seconds;
   _packing_seconds += data._packing_seconds;
   _ipc_seconds += data._ipc_seconds;
 }
@@ -353,6 +463,10 @@ ThermochimicaData::finalize()
              << ", linear_retrieves=" << _linear_retrieves
              << ", ellipsoid_growths=" << _ellipsoid_growths
              << ", ellipsoid_shrinks=" << _ellipsoid_shrinks
+             << ", neural_batches=" << _neural_batches
+             << ", neural_out_of_bounds=" << _neural_out_of_bounds
+             << ", neural_disabled_workers=" << _neural_disabled_workers
+             << ", neural_inference_time=" << _neural_inference_seconds << " s"
              << ", sensitivity_bytes=" << _sensitivity_bytes
              << ", sensitivity_time=" << _sensitivity_seconds << " s"
              << ", worker_solve_time=" << _solve_seconds << " s, packing_time=" << _packing_seconds
@@ -424,8 +538,10 @@ ThermochimicaData::createWorker()
     if (readMessage() != 'I')
       mooseError("Thermochimica worker failed during initialization.");
     if (_header->worker_status)
-      mooseError(
-          "Thermochimica worker initialization failed with status ", _header->worker_status, ".");
+      mooseError("Thermochimica worker initialization failed with status ",
+                 _header->worker_status,
+                 _header->worker_error[0] ? ": " : ".",
+                 _header->worker_error);
   }
   catch (...)
   {
@@ -528,9 +644,13 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _header->linear_retrieves = 0;
   _header->ellipsoid_growths = 0;
   _header->ellipsoid_shrinks = 0;
+  _header->neural_batches = 0;
+  _header->neural_out_of_bounds = 0;
+  _header->neural_disabled = 0;
   _header->sensitivity_bytes = 0;
   _header->solve_seconds = 0;
   _header->sensitivity_seconds = 0;
+  _header->neural_inference_seconds = 0;
   const auto ipc_start = std::chrono::steady_clock::now();
   writeMessage('Q');
   if (readMessage() != 'R')
@@ -539,6 +659,8 @@ ThermochimicaData::flushBatch(const unsigned int count)
       std::chrono::duration<Real>(std::chrono::steady_clock::now() - ipc_start).count();
   if (_header->worker_status)
     mooseError("Thermochimica worker failed with status ", _header->worker_status, ".");
+  if (_header->audit_failures && _header->worker_error[0])
+    mooseWarning(_header->worker_error);
 
   for (const auto row : make_range(count))
   {
@@ -578,10 +700,14 @@ ThermochimicaData::flushBatch(const unsigned int count)
   _linear_retrieves += _header->linear_retrieves;
   _ellipsoid_growths += _header->ellipsoid_growths;
   _ellipsoid_shrinks += _header->ellipsoid_shrinks;
+  _neural_batches += _header->neural_batches;
+  _neural_out_of_bounds += _header->neural_out_of_bounds;
+  _neural_disabled_workers += _header->neural_disabled;
   _sensitivity_bytes = _header->sensitivity_bytes;
   _cache_saturated = _cache_saturated || _header->cache_saturated;
   _solve_seconds += _header->solve_seconds;
   _sensitivity_seconds += _header->sensitivity_seconds;
+  _neural_inference_seconds += _header->neural_inference_seconds;
   _ipc_seconds += std::max<Real>(0.0, round_trip_seconds - _header->solve_seconds);
 }
 
@@ -657,12 +783,359 @@ ThermochimicaData::initializeThermochimica()
 #endif
 }
 
+#ifdef MOOSE_LIBTORCH_ENABLED
+void
+ThermochimicaData::initializeNeuralSurrogate()
+{
+  if (_configuration->surrogate_model != ThermochimicaConfiguration::SurrogateModel::NEURAL)
+    return;
+
+  auto fail = [this](const std::string & message)
+  {
+    _header->worker_status = EINVAL;
+    std::strncpy(_header->worker_error, message.c_str(), sizeof(_header->worker_error) - 1);
+  };
+
+  try
+  {
+    torch::jit::ExtraFilesMap extra_files{{"metadata.json", ""}};
+    auto module = torch::jit::load(
+        std::string(_configuration->surrogate_archive), c10::Device(c10::kCPU), extra_files);
+    module.eval();
+    if (extra_files["metadata.json"].empty())
+    {
+      fail("neural surrogate archive does not contain metadata.json");
+      return;
+    }
+
+    const auto metadata = nlohmann::json::parse(extra_files["metadata.json"]);
+    if (metadata.value("schema_version", 0) != 1 ||
+        metadata.value("archive_type", "") != "thermochimica_neural_torchscript")
+    {
+      fail("unsupported neural surrogate archive schema");
+      return;
+    }
+    if (metadata.value("elements", std::vector<std::string>()) != _configuration->elements ||
+        metadata.value("temperature_unit", "") != _configuration->temperature_unit ||
+        metadata.value("pressure_unit", "") != _configuration->pressure_unit ||
+        metadata.value("composition_unit", "") != _configuration->composition_unit)
+    {
+      fail("neural surrogate elements or units do not match the ChemicalComposition block");
+      return;
+    }
+    if (metadata.value("database_sha256", "") !=
+        sha256File(std::string(_configuration->database)))
+    {
+      fail("neural surrogate database SHA-256 does not match the configured database");
+      return;
+    }
+    const auto selection = metadata.value(
+        "phase_selection", nlohmann::json{{"mode", "none"}, {"phases", nlohmann::json::array()}});
+    const std::string selection_mode =
+        _configuration->phase_selection == ThermochimicaConfiguration::PhaseSelection::INCLUDE
+            ? "include"
+        : _configuration->phase_selection == ThermochimicaConfiguration::PhaseSelection::EXCLUDE
+            ? "exclude"
+            : "none";
+    if (selection.value("mode", "") != selection_mode ||
+        selection.value("phases", std::vector<std::string>()) != _configuration->selected_phases)
+    {
+      fail("neural surrogate phase selection does not match the ChemicalComposition block");
+      return;
+    }
+
+    const auto & outputs = metadata.at("outputs");
+    if (!outputs.is_array() || outputs.size() != _configuration->outputs.size())
+    {
+      fail("neural surrogate output count does not match the ChemicalComposition block");
+      return;
+    }
+    for (const auto output : index_range(_configuration->outputs))
+    {
+      const auto & descriptor = _configuration->outputs[output];
+      const auto variable =
+          std::visit([](const auto & value) { return outputVariable(value); }, descriptor);
+      const bool descriptor_matches = std::visit(
+          [&archive_output = outputs[output]](const auto & value)
+          {
+            using Output = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<Output, ThermochimicaConfiguration::PhaseOutput>)
+              return archive_output.value("type", "") == "phase" &&
+                     archive_output.value("phase", "") == value.phase;
+            else if constexpr (std::is_same_v<Output,
+                                              ThermochimicaConfiguration::SpeciesOutput>)
+              return archive_output.value("type", "") == "species" &&
+                     archive_output.value("phase", "") == value.phase &&
+                     archive_output.value("species", "") == value.species;
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::ElementPotentialOutput>)
+              return archive_output.value("type", "") == "element_potential" &&
+                     archive_output.value("element", "") == value.element;
+            else if constexpr (std::is_same_v<Output,
+                                              ThermochimicaConfiguration::VaporPressureOutput>)
+              return archive_output.value("type", "") == "vapor_pressure" &&
+                     archive_output.value("phase", "") == value.phase &&
+                     archive_output.value("species", "") == value.species;
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::ElementDistributionOutput>)
+              return archive_output.value("type", "") == "element_distribution" &&
+                     archive_output.value("phase", "") == value.phase &&
+                     archive_output.value("element", "") == value.element;
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::ChemicalPotentialOutput>)
+            {
+              const auto selector =
+                  value.kind == ThermochimicaConfiguration::ChemicalPotentialKind::SPECIES
+                      ? "species"
+                  : value.kind == ThermochimicaConfiguration::ChemicalPotentialKind::QUADRUPLET
+                      ? "quadruplet"
+                      : "endmember";
+              return archive_output.value("type", "") == "chemical_potential" &&
+                     archive_output.value("phase", "") == value.phase &&
+                     archive_output.value(selector, "") == value.component;
+            }
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::PhaseGibbsEnergyOutput>)
+              return archive_output.value("type", "") == "phase_gibbs" &&
+                     archive_output.value("phase", "") == value.phase;
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::PhaseDrivingForceOutput>)
+              return archive_output.value("type", "") == "phase_driving_force" &&
+                     archive_output.value("phase", "") == value.phase;
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::SystemGibbsEnergyOutput>)
+              return archive_output.value("type", "") == "system_gibbs";
+            else if constexpr (std::is_same_v<
+                                   Output,
+                                   ThermochimicaConfiguration::SystemPropertyOutput>)
+              return archive_output.value("type", "") == "system_property";
+            else
+              return archive_output.value("type", "") == "constituent_fraction" &&
+                     archive_output.value("phase", "") == value.phase &&
+                     archive_output.value("constituent", "") == value.constituent;
+          },
+          descriptor);
+      if (outputs[output].value("variable", "") != variable ||
+          !descriptor_matches ||
+          outputs[output].value("extensive", false) !=
+              static_cast<bool>(_configuration->output_extensive[output]) ||
+          outputs[output].value("nonnegative", false) !=
+              static_cast<bool>(_configuration->output_nonnegative[output]) ||
+          outputs[output].value("fraction", false) !=
+              static_cast<bool>(_configuration->output_fraction[output]))
+      {
+        fail("neural surrogate output " + std::to_string(output) + " ('" +
+             outputs[output].value("variable", "") + "') does not match requested output '" +
+             variable + "'");
+        return;
+      }
+    }
+
+    _neural_lower_bounds = metadata.at("input_lower_bounds").get<std::vector<Real>>();
+    _neural_upper_bounds = metadata.at("input_upper_bounds").get<std::vector<Real>>();
+    if (_neural_lower_bounds.size() != _configuration->inputWidth() ||
+        _neural_upper_bounds.size() != _configuration->inputWidth())
+    {
+      fail("neural surrogate input width does not match the ChemicalComposition block");
+      return;
+    }
+
+    torch::set_num_threads(1);
+    _neural_model = std::make_unique<torch::jit::script::Module>(std::move(module));
+  }
+  catch (const std::exception & error)
+  {
+    fail("unable to load neural surrogate archive '" +
+         std::string(_configuration->surrogate_archive) + "': " + error.what());
+  }
+}
+
+void
+ThermochimicaData::evaluateNeuralBatch()
+{
+  std::fill(_row_status, _row_status + _header->count, -1);
+  if (!_neural_model || _neural_disabled)
+  {
+    for (const auto row : make_range(_header->count))
+      _row_status[row] = solveRow(row, false);
+    return;
+  }
+
+  std::vector<unsigned int> rows;
+  std::vector<Real> total_scales;
+  std::vector<float> inputs;
+  rows.reserve(_header->count);
+  total_scales.reserve(_header->count);
+  inputs.reserve(_header->count * _configuration->inputWidth());
+  unsigned int first_neural_row = 0;
+  if (!_worker_has_previous_solve &&
+      _configuration->warm_start == ThermochimicaConfiguration::WarmStart::PREVIOUS_SOLVE &&
+      _header->count)
+  {
+    _row_status[0] = solveRow(0, false);
+    first_neural_row = 1;
+  }
+  for (const auto row : make_range(first_neural_row, _header->count))
+  {
+    std::vector<Real> key;
+    Real total_scale = 1.0;
+    if (!normalizedInput(row, key, total_scale))
+    {
+      ++_header->invalid_state_rejections;
+      continue;
+    }
+    bool in_bounds = true;
+    for (const auto column : index_range(key))
+    {
+      const Real padding =
+          1e-6 * std::max<Real>(1.0, std::max(std::abs(_neural_lower_bounds[column]),
+                                             std::abs(_neural_upper_bounds[column])));
+      if (key[column] < _neural_lower_bounds[column] - padding ||
+          key[column] > _neural_upper_bounds[column] + padding)
+      {
+        in_bounds = false;
+        break;
+      }
+    }
+    if (!in_bounds)
+    {
+      ++_header->neural_out_of_bounds;
+      continue;
+    }
+    rows.push_back(row);
+    total_scales.push_back(total_scale);
+    for (const auto value : key)
+      inputs.push_back(static_cast<float>(value));
+  }
+
+  if (!rows.empty())
+  {
+    const auto inference_start = std::chrono::steady_clock::now();
+    try
+    {
+      c10::InferenceMode guard;
+      auto tensor =
+          torch::from_blob(inputs.data(),
+                           {static_cast<long>(rows.size()),
+                            static_cast<long>(_configuration->inputWidth())},
+                           torch::TensorOptions().dtype(torch::kFloat32))
+              .clone();
+      auto prediction = _neural_model->forward({tensor}).toTensor().to(torch::kCPU).contiguous();
+      if (prediction.dim() != 2 || prediction.size(0) != static_cast<long>(rows.size()) ||
+          prediction.size(1) != static_cast<long>(_configuration->outputWidth()))
+        throw std::runtime_error("model returned an unexpected tensor shape");
+      const auto values = prediction.accessor<float, 2>();
+      ++_header->neural_batches;
+
+      for (const auto index : index_range(rows))
+      {
+        const auto row = rows[index];
+        auto * result = _results + row * _configuration->outputWidth();
+        bool valid = true;
+        for (const auto output : make_range(_configuration->outputWidth()))
+        {
+          Real value = values[index][output];
+          if (_configuration->output_extensive[output])
+            value *= total_scales[index];
+          const Real invariant_padding = 1e-10;
+          if (_configuration->output_nonnegative[output] && value < 0.0 &&
+              value >= -invariant_padding)
+            value = 0.0;
+          if (_configuration->output_fraction[output] && value > 1.0 &&
+              value <= 1.0 + invariant_padding)
+            value = 1.0;
+          if (!std::isfinite(value) || (_configuration->output_nonnegative[output] && value < 0.0) ||
+              (_configuration->output_fraction[output] && value > 1.0))
+          {
+            valid = false;
+            break;
+          }
+          result[output] = value;
+        }
+        if (!valid)
+        {
+          ++_header->invariant_rejections;
+          continue;
+        }
+
+        ++_header->surrogate_hits;
+        const bool audit =
+            _configuration->surrogate_audit_interval &&
+            (++_worker_accepted_predictions % _configuration->surrogate_audit_interval == 0);
+        if (!audit)
+        {
+          _row_status[row] = 0;
+          continue;
+        }
+
+        std::vector<Real> neural_result(result, result + _configuration->outputWidth());
+        _row_status[row] = solveRow(row, false);
+        if (_row_status[row] == 0)
+        {
+          ++_header->audits;
+          if (!outputsWithinTolerance(neural_result, result))
+          {
+            ++_header->audit_failures;
+            _neural_disabled = true;
+            _header->neural_disabled = 1;
+            for (const auto output : index_range(neural_result))
+            {
+              const Real tolerance =
+                  _configuration->surrogate_absolute_tolerances[output] +
+                  _configuration->surrogate_relative_tolerance *
+                      std::max(std::abs(neural_result[output]), std::abs(result[output]));
+              if (std::abs(neural_result[output] - result[output]) > tolerance)
+              {
+                const auto variable =
+                    std::visit([](const auto & descriptor) { return outputVariable(descriptor); },
+                               _configuration->outputs[output]);
+                std::snprintf(_header->worker_error,
+                              sizeof(_header->worker_error),
+                              "Neural surrogate audit failed for '%s': predicted=%g, exact=%g, "
+                              "tolerance=%g. Neural inference is disabled for this worker.",
+                              variable.c_str(),
+                              neural_result[output],
+                              result[output],
+                              tolerance);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    catch (const std::exception &)
+    {
+      ++_header->error_rejections;
+      _neural_disabled = true;
+      _header->neural_disabled = 1;
+    }
+    _header->neural_inference_seconds +=
+        std::chrono::duration<Real>(std::chrono::steady_clock::now() - inference_start).count();
+  }
+
+  for (const auto row : make_range(_header->count))
+    if (_row_status[row] == -1)
+      _row_status[row] = solveRow(row, false);
+}
+#endif
+
 [[noreturn]] void
 ThermochimicaData::workerLoop()
 {
+#ifdef MOOSE_LIBTORCH_ENABLED
+  initializeNeuralSurrogate();
+#endif
   initializeThermochimica();
 #ifdef THERMOCHIMICA_ENABLED
-  if (_configuration->acceleration == ThermochimicaConfiguration::Acceleration::ADAPTIVE ||
+  if ((_configuration->acceleration == ThermochimicaConfiguration::Acceleration::ADAPTIVE &&
+       _configuration->surrogate_model != ThermochimicaConfiguration::SurrogateModel::NEURAL) ||
       _configuration->warm_start == ThermochimicaConfiguration::WarmStart::NEAREST_CACHED)
     _cache = std::make_unique<ValueCache<std::size_t>>(_configuration->inputWidth());
 #endif
@@ -693,8 +1166,13 @@ ThermochimicaData::workerLoop()
     }
 
     const auto start = std::chrono::steady_clock::now();
-    for (const auto row : make_range(_header->count))
-      _row_status[row] = solveRow(row);
+#ifdef MOOSE_LIBTORCH_ENABLED
+    if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::NEURAL)
+      evaluateNeuralBatch();
+    else
+#endif
+      for (const auto row : make_range(_header->count))
+        _row_status[row] = solveRow(row);
 #ifdef THERMOCHIMICA_ENABLED
     _header->cache_entries = _cache ? _cache->size() : 0;
     _header->sensitivity_bytes = _worker_sensitivity_bytes;
@@ -708,7 +1186,7 @@ ThermochimicaData::workerLoop()
 }
 
 int
-ThermochimicaData::solveRow(const unsigned int row)
+ThermochimicaData::solveRow(const unsigned int row, const bool allow_prediction)
 {
 #ifdef THERMOCHIMICA_ENABLED
   const auto * input = _inputs + row * _configuration->inputWidth();
@@ -722,11 +1200,14 @@ ThermochimicaData::solveRow(const unsigned int row)
   if (_cache && !cacheable)
     ++_header->invalid_state_rejections;
   bool audit = false;
-  if (cacheable &&
+  if (allow_prediction && cacheable &&
       _configuration->acceleration == ThermochimicaConfiguration::Acceleration::ADAPTIVE &&
       predictRow(row, cache_key, total_scale, audit) && !audit)
     return 0;
 
+  Thermochimica::setUnitTemperature(_configuration->temperature_unit);
+  Thermochimica::setUnitPressure(_configuration->pressure_unit);
+  Thermochimica::setUnitMass(_configuration->composition_unit);
   Thermochimica::setTemperaturePressure(input[0], input[1]);
   Thermochimica::setElementMass(0, 0.0);
   for (const auto i : index_range(_configuration->element_ids))
@@ -922,7 +1403,15 @@ ThermochimicaData::normalizedInput(const unsigned int row,
     return false;
 
   key.resize(_configuration->inputWidth());
-  if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
+  if (_configuration->surrogate_model == ThermochimicaConfiguration::SurrogateModel::NEURAL)
+  {
+    key[0] = std::log(temperature_kelvin / 298.15);
+    key[1] = std::log(pressure_bar);
+    for (const auto i : index_range(_configuration->elements))
+      key[2 + i] = composition[i] / total;
+  }
+  else if (_configuration->surrogate_model ==
+           ThermochimicaConfiguration::SurrogateModel::KKT_LINEAR)
   {
     key[0] = std::log(temperature_kelvin / 298.15);
     key[1] = std::log(pressure_bar);

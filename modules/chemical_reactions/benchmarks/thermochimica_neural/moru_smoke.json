@@ -1,0 +1,75 @@
+{
+  "database": "../../test/tests/thermochimica/Kaye_NobleMetals.dat",
+  "temperature": 2250.0,
+  "pressure": 1.0,
+  "temperature_unit": "K",
+  "pressure_unit": "atm",
+  "composition_unit": "moles",
+  "elements": ["Mo", "Ru"],
+  "outputs": [
+    {
+      "type": "element_potential",
+      "variable": "mo_potential",
+      "element": "Mo",
+      "extensive": false,
+      "nonnegative": false,
+      "fraction": false,
+      "absolute_tolerance": 0.0,
+      "relative_tolerance": 0.001
+    },
+    {
+      "type": "phase",
+      "variable": "bcc_amount",
+      "phase": "BCCN",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "bcc_fraction",
+      "phase": "BCCN",
+      "extensive": false,
+      "nonnegative": true,
+      "fraction": true,
+      "absolute_tolerance": 0.001,
+      "relative_tolerance": 0.0
+    },
+    {
+      "type": "phase",
+      "variable": "hcp_amount",
+      "phase": "HCPN",
+      "extensive": true,
+      "nonnegative": true,
+      "fraction": false,
+      "absolute_tolerance": 1e-6,
+      "relative_tolerance": 0.01
+    },
+    {
+      "type": "phase",
+      "variable": "hcp_fraction",
+      "phase": "HCPN",
+      "extensive": false,
+      "nonnegative": true,
+      "fraction": true,
+      "absolute_tolerance": 0.001,
+      "relative_tolerance": 0.0
+    },
+    {
+      "type": "system_gibbs",
+      "variable": "system_gibbs",
+      "extensive": true,
+      "nonnegative": false,
+      "fraction": false,
+      "absolute_tolerance": 0.0,
+      "relative_tolerance": 0.001
+    }
+  ],
+  "epochs": 1000,
+  "patience": 100,
+  "learning_rate": 0.001,
+  "validation_fraction": 0.2,
+  "seed": 11
+}
