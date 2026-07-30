@@ -19,6 +19,7 @@
 \newcommand{\measured}{\textsc{measured}}
 \newcommand{\derived}{\textsc{derived}}
 \newcommand{\planned}{\textsc{planned}}
+\newcommand{\failed}{\textsc{failed}}
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
 \DeclareSIUnit\barunit{bar}
@@ -60,24 +61,25 @@ Thermochimica worker processes.  The deployed map uses logarithmic temperature a
 normalized elemental composition, embedded input and output standardization, and explicit
 rescaling of extensive outputs.
 
-The neural result is never treated as globally valid.  Archive metadata binds it to the
-thermodynamic database digest, ordered elements, units, phase selection, ordered output
-descriptors, output semantics, and canonical input bounds.  A row outside those bounds, a
-nonfinite result, an invalid amount or fraction, an inference exception, or an audit-selected row
-is evaluated exactly.  Every audited row publishes the exact Thermochimica value.  The first state
-in each worker is also exact when previous-solve warm starting is active.  If an audit violates
-the configured mixed absolute--relative tolerance, neural inference is disabled for that worker
-for the remainder of the run.
+The neural result is never treated as globally valid.  Archive schema version 2 binds the model
+to the thermodynamic identity and adds phase-presence logits, calibrated per-assemblage
+distance-to-training-support gates, inverse-transformed nonnegative outputs, and coupled
+phase/element-fraction invariants.  Low-confidence or contradictory phase labels, unsupported
+assemblages, nonfinite values, invariant violations, and audit-selected rows are evaluated
+exactly.  Every audited row publishes the exact Thermochimica value, and the first failed audit
+disables neural inference in that worker.
 
-Two local prototype demonstrations were completed.  A 576-state Fe--Cr BCC grid achieved a
-\(4.99\times\) reduction in aggregate worker solve time and reduced exact solves from 576 to 32.
-A 400-state gas-bearing U--Zr--F--Be--Li trajectory achieved a \(16.79\times\) worker-time speedup,
-a \(9.4\times\) observed end-to-end speedup, and reduced exact solves from 400 to 20.  Both runs
-had zero audit failures.  All held-out outputs met the prototype tolerances.  These are
-single-machine development measurements, not production statistics.  In particular, the
-fluoride model is a trajectory-specific surrogate for a smooth gas-bearing interval; the longer
-off-gassing path crosses sharp phase changes and is intentionally outside the archive's claim of
-validity.
+This revision changes the scientific qualification target.  The original smooth gas-bearing
+trajectory is retained only as a \emph{legacy performance microbenchmark}; it is not headline
+evidence for general fluoride chemistry.  \measured{} preliminary evidence includes a
+\(24\times24\) exact Fe--Cr phase-map scan and an unrestricted eight-state
+F--Li--U--Th--Ni--Nd--Ce--La--Cs--I discovery smoke test using
+\code{MSDTC\_41\_fluorides.dat}.  Seven of those eight fluoride states contained MSFL plus a
+non-gas condensed phase, and the discovered union included solid LiF, \code{Ni\_fcc(s)}, and
+\code{U\_S1(s)} as well as MSFL and ideal gas.  The production-size phase maps, element-count
+curves, trained NS replay archive, and acceptance timings remain \planned{} until the corresponding
+held-out and repeated runs finish.  No preliminary number is promoted to a fluoride-wide
+acceleration claim.
 \end{abstract}
 
 \tableofcontents
@@ -93,37 +95,38 @@ Thermochimica accelerator in MOOSE.  Its principal strengths are:
   input/output contract differs from the MOOSE configuration;
   \item one batched CPU forward call serves all eligible rows in a worker request;
   \item extensive and intensive outputs retain their distinct scaling laws;
-  \item physical output invariants and finite-value checks are enforced before publication;
+  \item per-assemblage training-support, calibrated phase-confidence, physical output invariants,
+  and finite-value checks are enforced before publication;
   \item an audit failure disables the model locally rather than allowing repeated unverified
   predictions; and
   \item exact, local inverse-distance, and KKT-linear modes remain available and do not require
   libtorch.
 \end{itemize}
 
-The strongest numerical evidence is in smooth, bounded regimes.  The Fe--Cr validation set
-contained only BCC equilibrium states.  The fluoride case covered a restricted interval in which
-both the MSFL and ideal-gas phases remained present.  This is the correct scope for the present
-model: a neural approximation can be highly efficient inside a represented regime, but the
-network architecture alone does not discover a thermodynamically rigorous phase boundary or
-guarantee elemental conservation.
+The earlier timing evidence remains useful for implementation performance, but its scientific
+scope is narrow: the Fe--Cr archive covered one BCC region and the fluoride archive followed one
+smooth MSFL/gas trajectory.  The revised campaign instead requires separate evidence for
+single-phase interiors, multiphase interiors, and transition buffers, with transition ambiguity
+treated as an intended exact fallback.
 
-The current qualification gaps should be explicit:
+The current evidence status is explicit:
 \begin{enumerate}[leftmargin=*]
-  \item the Fe--Cr metrics use a deterministic 80/20 holdout from one \(24\times24\) grid rather
-  than a separately generated staggered grid;
-  \item the training bounds are coordinatewise bounds, not a convex-hull or density test;
-  \item the metadata records input units but leaves output thermodynamic units implicit in the
-  Thermochimica output descriptors;
-  \item the neural outputs are trained jointly but are not constrained by Gibbs--Duhem,
-  conservation, or phase-sum identities;
-  \item timing results are single local observations without repetitions, confidence intervals,
-  executable digests, or a persistent result archive; and
-  \item TorchScript is deprecated upstream, although it remains the shortest compatible path
-  through MOOSE's existing libtorch loader.
+  \item \measured: schema-2 unit tests, a libtorch MOOSE load/inference smoke test, a
+  \(24\times24\) exact Fe--Cr scan, Li--F table replay, and the unrestricted ten-element
+  fluoride discovery smoke test;
+  \item \derived: the active fluoride output union and replay specification are generated from
+  exact discovery values above \(10^{-10}\) per unit-total composition;
+  \item \planned: the full \(64\times64/63\times63\) Fe--Cr grids, 9/13/17-element SLURM
+  campaign, production \(48\times96\) NS fields, repeated timing, and confidence intervals;
+  \item \failed: no acceptance criterion is marked failed merely because its run is unfinished;
+  an actual tolerance, unseen-phase, or speed gate failure will remain in the final table; and
+  \item TorchScript remains a version-coupled prototype deployment mechanism; a future PT2 loader
+  must preserve the same archive-level thermodynamic contract.
 \end{enumerate}
 
-The defensible conclusion is that the prototype is an effective guarded accelerator for these two
-represented trajectories.  It is not yet a globally qualified replacement for Thermochimica.
+The defensible conclusion is therefore narrower than the original report: the phase-aware runtime
+and qualification machinery are implemented, while general multiphase fluoride acceleration and
+the NS speed target are not yet qualified.
 
 \section{Problem statement and scope}
 
@@ -553,8 +556,79 @@ and for a fraction,
 \end{equation}
 Finite negative values in \([-10^{-10},0)\) are clamped to zero, and fraction values in
 \((1,1+10^{-10}]\) are clamped to one.  Any larger violation or any nonfinite output rejects that
-row.  The present implementation does not project multiple phase fractions onto a unit simplex or
-enforce an elemental balance across separately predicted outputs.
+row.
+
+For nonnegative outputs spanning many decades, training uses the declared invertible transform
+\begin{equation}
+  q_j(y)=\log\left(1+\frac{y}{s_j}\right),
+  \qquad
+  q_j^{-1}(v)=s_j\left(e^v-1\right),
+  \label{eq:log1p-transform}
+\end{equation}
+where \(s_j>0\) is stored per output.  The inverse is embedded in the exported model, so the C++
+runtime, invariants, audits, and published variables always operate on physical values.  Gibbs
+energies and potentials retain the linear transform.
+
+\subsection{Phase classification and per-assemblage support}
+
+Let \(p_k(\boldsymbol{z})=\sigma(l_k/\tau)\) be the calibrated probability that phase \(k\) is
+present, where \(l_k\) is a classifier logit and \(\tau>0\) is selected on the disjoint validation
+file.  The predicted phase signature is
+\begin{equation}
+  \widehat{\boldsymbol{s}}(\boldsymbol{z})
+  =\left(\mathbb{1}[p_1\geq\tfrac12],\ldots,
+          \mathbb{1}[p_K\geq\tfrac12]\right).
+  \label{eq:phase-signature}
+\end{equation}
+Every phase decision must satisfy
+\begin{equation}
+  \max(p_k,1-p_k)\geq c_{\min}=0.99,
+  \label{eq:phase-confidence}
+\end{equation}
+and it must agree with the independently regressed phase amount relative to the configured
+presence threshold.  Failure of either condition sends the row to exact GEM.
+
+Coordinatewise bounds alone admit empty corners of a high-dimensional box.  Let
+\(\widetilde{\boldsymbol{z}}\) be the network-standardized input and let
+\(\mathcal{A}_{\boldsymbol{s}}\) contain standardized training anchors having signature
+\(\boldsymbol{s}\).  Schema 2 exports one distance column per validation-calibrated assemblage:
+\begin{equation}
+  d_{\boldsymbol{s}}(\boldsymbol{z})
+  =\min_{\boldsymbol{a}\in\mathcal{A}_{\boldsymbol{s}}}
+    \norm{\widetilde{\boldsymbol{z}}-\boldsymbol{a}}.
+  \label{eq:assemblage-distance}
+\end{equation}
+To bound archive size and the temporary
+\(N_{\mathrm{batch}}\times N_{\mathrm{anchor}}\times d\) distance tensor, the implementation
+retains at most 4096 anchors by default, stratified equally across calibration assemblages and
+selected deterministically in training-table order.  The retained anchor count and the larger
+number of represented training rows are both recorded.  Radius calibration uses the retained
+set, so compression can only enlarge the measured validation distances and cannot silently use
+the discarded points at deployment.
+For validation distances \(D_{\boldsymbol{s}}\), the support radius is
+\begin{equation}
+  r_{\boldsymbol{s}}
+  =\gamma\,Q_{0.99}(D_{\boldsymbol{s}}),\qquad \gamma=1.25,
+  \label{eq:support-radius}
+\end{equation}
+subject to a small positive numerical floor.  A predicted signature absent from the calibrated
+assemblage table, or a state with
+\(d_{\widehat{\boldsymbol{s}}}>r_{\widehat{\boldsymbol{s}}}\), is rejected.  Thus a point can be
+inside every marginal bound and still correctly fall back because it is far from training support.
+
+\subsection{Coupled invariants}
+
+Metadata defines complete groups of physical fraction outputs.  For a phase-fraction group
+\(\mathcal{J}_{p}\) and each complete element-distribution group
+\(\mathcal{J}_{e}\), acceptance requires
+\begin{equation}
+  \abs{\sum_{j\in\mathcal{J}_{p}}\widehat y_j-1}\leq10^{-3},
+  \qquad
+  \abs{\sum_{j\in\mathcal{J}_{e}}\widehat y_j-1}\leq10^{-3}.
+  \label{eq:coupled-invariants}
+\end{equation}
+The runtime does not renormalize a failed prediction, because projection could hide a
+thermodynamically inconsistent network result.  It executes exact Thermochimica instead.
 
 \subsection{Exact seeding and audits}
 
@@ -607,7 +681,7 @@ if the forward call throws or returns an incorrectly shaped tensor.
     \node[exact, right=of bounds] (rowgem) {Mark row for exact GEM};
     \node[box, below=of bounds] (tensor) {Pack all eligible rows};
     \node[box, below=of tensor] (forward) {One CPU forward call};
-    \node[decision, below=of forward] (valid) {shape, finite, and\\invariants valid?};
+    \node[decision, below=of forward] (valid) {shape, phase/support,\\and invariants valid?};
     \node[decision, below=of valid] (audit) {worker-local\\audit due?};
     \node[exact, right=of audit] (auditgem) {Solve audit row exactly;\\compare and publish exact};
     \node[accepted, below=of audit] (publish) {Publish neural prediction};
@@ -643,25 +717,25 @@ Listing~\ref{lst:training} expresses the trainer at the level needed to reproduc
 decisions.
 
 \begin{lstlisting}[caption={Deterministic training and archive export.},label={lst:training}]
-table = read_exact_moose_csv()
+training = read_exact_moose_csv()
+validation = read_disjoint_exact_validation_csv()
 spec = read_json_specification()
 z, total = canonicalize(T, P, ordered_element_columns)
-y_bar = normalize_extensive_outputs(y, total, output_flags)
-
-permutation = seeded_permutation(number_of_rows)
-validation, training = split(permutation, validation_fraction)
+y_bar = transform(normalize_extensive_outputs(y, total, output_flags))
+phase_labels = presence_labels(y_bar, declared_phase_thresholds)
 statistics = means_and_clamped_standard_deviations(training)
 model = Standardize -> 128-SiLU -> 128-SiLU -> 64-SiLU
-        -> output -> Destandardize
+        -> regression + phase logits + per-assemblage support distances
 
 repeat until epoch limit or early stopping:
-    update model with Adam on standardized full-training MSE
-    evaluate standardized validation MSE
+    update model with Adam on standardized MSE + weighted phase BCE
+    evaluate the same loss only on the explicit validation file
     update plateau scheduler
     retain best model and reset patience only on improvement > 1e-10
 
-metadata = database_digest + ordered_contract + all_data_bounds
-           + validation_metrics + torch_version
+calibrate phase temperature and per-assemblage support radii on validation
+metadata = ordered_contract + training_bounds + output transforms
+           + phase/support gates + coupled invariants + validation metrics
 trace_best_model_with_float32_example()
 save_torchscript(model, extra_file={"metadata.json": metadata})
 write_human_readable_validation_report()
@@ -686,11 +760,15 @@ for each remaining row:
         append row to eligible tensor
 
 prediction = one_forward_call(eligible_tensor)
-require prediction shape == [eligible_rows, ordered_outputs]
+require prediction shape == [eligible_rows, schema_declared_model_width]
 for each predicted row:
-    rescale extensive outputs
+    inverse-transform and rescale extensive regression outputs
     clamp only roundoff-sized invariant excursions
-    if any value is nonfinite or violates an invariant:
+    classify phases and require confidence >= 0.99
+    select matching assemblage support distance and radius
+    if phase/regression labels disagree or support is absent:
+        leave row unresolved
+    else if any value is nonfinite or violates a scalar/coupled invariant:
         leave row unresolved
     else if audit is due:
         solve exactly, publish exact, compare all outputs
@@ -705,7 +783,7 @@ solve every unresolved row exactly
 
 \subsection{Schema}
 
-Table~\ref{tab:metadata} summarizes schema version 1.  Metadata is embedded inside the
+Table~\ref{tab:metadata} summarizes the compatible schema versions.  Metadata is embedded inside the
 TorchScript ZIP container rather than stored as an adjacent file, so moving the archive does not
 separate it from its contract.
 
@@ -722,7 +800,8 @@ separate it from its contract.
   \endhead
   \code{schema\_version} &
   Selects the loader contract &
-  Must equal 1. \\
+  Version 1 retains the original regression-only loader; version 2 enables the phase-aware
+  layout. \\
   \code{archive\_type} &
   Distinguishes this artifact from an arbitrary TorchScript model &
   Must equal \code{thermochimica\_neural\_torchscript}. \\
@@ -735,6 +814,9 @@ separate it from its contract.
   input unit fields &
   Conversion interpretation for \(T,P,\boldsymbol{a}\) &
   Temperature, pressure, and composition units must match. \\
+  \code{thermodynamic\_units} &
+  J, J/mol, dimensionless fractions, configured pressure unit, and unit-total training basis &
+  Records physical publication/audit semantics; configured input units remain the mismatch gate. \\
   \code{phase\_selection} &
   Included/excluded phase configuration &
   Mode and ordered phase list must match. \\
@@ -744,6 +826,18 @@ separate it from its contract.
   \code{input\_lower\_bounds}, \code{input\_upper\_bounds} &
   Coordinatewise training envelope &
   Width must equal \(d\); every inferred row must lie inside. \\
+  \code{model\_output\_layout} &
+  Separates regression, phase-logit, and support-distance columns &
+  Version-2 offsets/counts must be contiguous and match the model tensor width. \\
+  \code{phase\_gate} &
+  Presence outputs, thresholds, calibration temperature, and confidence &
+  Each amount output and logit is validated before inference. \\
+  \code{support.assemblages} &
+  Signatures, distance columns, anchor counts, and calibrated radii &
+  The classified row must match one entry and lie inside its radius. \\
+  \code{invariant\_groups} &
+  Complete phase and element-distribution fraction groups &
+  Physical inverse-transformed sums must meet the declared target/tolerance. \\
   \code{torch\_version} &
   Export provenance &
   Recorded for diagnosis; compatibility is ultimately tested by load. \\
@@ -805,18 +899,30 @@ silently trying multiple loaders would weaken failure diagnosis.
   Stores the neural model selection and archive path alongside ordered inputs, outputs,
   tolerances, units, and phase selection. \\
   \code{ThermochimicaData.C/.h} &
-  Loads and validates one model per worker, builds batched tensors, applies bounds and invariants,
-  schedules audits, executes exact fallback, disables failed workers, and reports telemetry. \\
+  Loads and validates one model per worker, builds batched tensors, applies bounds,
+  per-assemblage support, phase gates, scalar/coupled invariants, schedules audits, executes exact
+  fallback, disables failed workers, and reports telemetry. \\
   \code{train\_thermochimica\_nn.py} &
   Reads exact CSV and JSON, constructs canonical data, trains the fixed network, embeds metadata,
   exports TorchScript, and writes the validation report. \\
-  \code{fe\_cr.i}, \code{fe\_cr.json} &
-  Define the binary temperature--composition training grid and ordered targets. \\
-  \code{fluoride\_gas.i}, \code{fluoride\_gas.json} &
-  Restrict the existing multielement case to a direct initial-condition trajectory and select
-  gas/MSFL outputs. \\
-  \code{run\_demo.py} &
-  Runs exact data generation, training, and neural evaluation for either demonstration. \\
+  \code{fe\_cr\_multiphase.i/.json} &
+  Define the broad Fe--Cr phase map, BCC/FCC/HCP/liquid/sigma outputs, phase labels, transforms,
+  and complete phase-fraction invariant. \\
+  \code{element\_scaling.i/.json} &
+  Hold the output vector fixed while the qualification driver changes nested element sets. \\
+  \code{fluoride\_discovery.i} and \code{msfr\_compositions.csv} &
+  Perform unrestricted ten-element discovery and preserve attributed early/depleted composition
+  endpoints. \\
+  \code{msfr\_ns\_precursor.i} and \code{msfr\_replay.i} &
+  Generate a self-contained FV temperature/pressure field, then replay exact or neural
+  thermochemistry with the discovery-active output union. \\
+  \code{qualification.py} and \code{manifests/*.json} &
+  Generate seeded Sobol states, run quick/full studies, train with explicit validation data,
+  inspect active Exodus outputs, score the raw archive separately from guarded replay, reduce
+  telemetry, repeat timings, and persist compact summaries. \\
+  \code{plot\_qualification.py} &
+  Generate exact Fe--Cr phase maps, element-scaling curves, MSFR field/error maps, and exact versus
+  guarded-neural iodine inventory figures from an external result directory. \\
   \code{test\_trainer.py} and MOOSE test entries &
   Exercise export metadata plus capability-gated runtime behavior. \\
   \bottomrule
@@ -841,6 +947,8 @@ The existing performance report is extended with:
   \item \code{neural\_batches}: successful batched forward calls;
   \item \code{surrogate\_hits}: valid neural rows, including rows subsequently audited;
   \item \code{neural\_out\_of\_bounds}: valid canonical states outside the archive box;
+  \item \code{neural\_support\_rejections}: in-box states outside calibrated assemblage support;
+  \item \code{neural\_phase\_rejections}: low-confidence or regression-inconsistent phase labels;
   \item \code{invariant} and \code{error} rejections: bad values or inference-level failure;
   \item \code{audits} and \code{audit\_failures};
   \item \code{neural\_disabled\_workers};
@@ -879,9 +987,11 @@ per forked worker after process creation, avoiding unsafe reuse of a pre-fork ru
   neural-surrogate branch changes &
   Supports algorithm and control-flow statements; does not establish accuracy or speed. \\
   Trainer validation &
-  Embedded archive report from a seeded 80/20 split &
-  Measures interpolation on held-out rows from the sampled dataset; does not measure a distinct
-  thermodynamic region. \\
+  Embedded archive report from an explicit disjoint exact CSV &
+  Controls early stopping and calibration without spatially adjacent random-split leakage. \\
+  Independent test &
+  Exact CSV withheld from both optimization and calibration &
+  Determines scientific acceptance; it is opened only by the benchmark driver after export. \\
   Runtime validation &
   Exact audits and exact-versus-neural state counters &
   Supports the observed guarded execution path and in-run error checks. \\
@@ -892,11 +1002,78 @@ per forked worker after process creation, avoiding unsafe reuse of a pre-fork ru
   \bottomrule
 \end{longtable}
 
-All numerical rows below are marked \measured\ when read from the prototype validation reports or
+All numerical rows below are marked \measured\ when read from exact output, validation reports, or
 MOOSE performance output.  Ratios marked \derived\ are arithmetic combinations of those measured
-values.  No production HPC neural-surrogate campaign has been completed.
+values.  Configured but unfinished values are \planned; failed gates are \failed{} and are not
+silently removed.  No production HPC neural-surrogate campaign has been completed.
 
-\subsection{Fe--Cr demonstration}
+The driver performs two deliberately different comparisons.  First, it evaluates the exported
+archive directly on the inaccessible test CSV before any MOOSE fallback can replace a bad
+prediction.  These raw predictions determine scientific error and the smallest passing
+element-scaling prefix.  Second, it replays the same states through MOOSE and reports published
+outputs, gate-specific rejections, audits, exact solves, inference time, worker time, wall time,
+and peak reported memory.  This prevents an all-fallback run from appearing to be an accurate
+surrogate merely because its published values are exact.
+
+\subsection{Multiphase, scaling, and NS campaign}
+
+The Fe--Cr qualification domain is \(900\)--\(1800~\si{\kelvin}\), \(1~\si{\barunit}\), and
+\(x_{\mathrm{Cr}}\in[0.02,0.98]\).  The quick grids are \(24\times24\) training,
+\(12\times12\) disjoint validation, and \(23\times23\) staggered test; production uses
+\(64\times64\), \(32\times32\), and \(63\times63\), respectively.  Validation calibrates early
+stopping and support radii but is not reported as a test.  A case does not qualify as multiphase
+unless exact results contain at least two assemblages and the production held-out set contains at
+least 50 states with two phases above \(10^{-8}\) mole fraction.
+
+The fluoride discovery samples five independent Sobol coordinates: \(T\), \(P\), depletion
+interpolation, a fluorine factor in \([0.95,1.05]\), and a Ni factor in \([0.5,2]\).  It requests
+\code{ALL} equilibrium phases and species from \code{MSDTC\_41\_fluorides.dat}; the active union is
+selected at
+\begin{equation}
+  n_{\mathrm{active}}>\max(10^{-12}\ {\rm mol},10^{-10}n_{\mathrm{total}}).
+\end{equation}
+MSFL plus ideal gas alone is insufficient: at least one discovery state must contain MSFL and a
+non-gas phase.  The element-scaling study separately uses nested 2/5/9/13/17-element sets,
+independent composition coordinates, and a fixed output vector, so it measures computational
+dimension rather than reactor realism.
+
+Figure~\ref{fig:ns-workflow} shows the one-way-coupled NS methodology.  It is inspired by the VTB
+MSFR thermochemistry workflow~\cite{vtbthermo} but is not a numerical reproduction: the present
+precursor, database, mesh, and composition policy differ.  The attributed composition table sums
+isotopes from the VTB depletion CSV.  Because its earliest row is at five days, the local
+\code{fresh\_proxy} retains the ten element-wise isotope sums from that row; it is not labeled an
+exact zero-burnup VTB fresh state.  The local 1~mol\% Ni corrosion inventory is likewise an explicit benchmark
+assumption.
+
+\begin{figure}[H]
+  \centering
+  \resizebox{\textwidth}{!}{%
+  \begin{tikzpicture}[
+    font=\small,
+    node distance=8mm and 11mm,
+    box/.style={draw, rounded corners, align=center, minimum width=35mm, minimum height=10mm},
+    arrow/.style={-{Latex[length=2mm]}, thick}
+  ]
+    \node[box, fill=trainingblue!7] (sobol) {Seeded operating points\\\(T_{\rm in},u,q''',P_{\rm out}\)};
+    \node[box, right=of sobol, fill=trainingblue!7] (ns) {Steady FV RZ\\NS + energy};
+    \node[box, right=of ns] (fields) {Saved identical\\\(T(\boldsymbol{x}),P(\boldsymbol{x})\) fields};
+    \node[box, below left=of fields, draw=exactred, fill=exactred!7] (exact) {Exact unrestricted\\Thermochimica replay};
+    \node[box, below right=of fields, draw=acceptgreen, fill=acceptgreen!7] (neural) {Phase-gated neural\\replay + exact fallback};
+    \node[box, below=of fields] (compare) {Phase/potential maps, iodine\\inventory, errors, timing};
+    \draw[arrow] (sobol) -- (ns);
+    \draw[arrow] (ns) -- (fields);
+    \draw[arrow] (fields) -- (exact);
+    \draw[arrow] (fields) -- (neural);
+    \draw[arrow] (exact) -- (compare);
+    \draw[arrow] (neural) -- (compare);
+  \end{tikzpicture}
+  }
+  \caption{Self-contained precursor/replay workflow.  Chemistry is a postprocessing calculation
+  and does not feed back into the flow solution.}
+  \label{fig:ns-workflow}
+\end{figure}
+
+\subsection{Legacy smooth Fe--Cr demonstration}
 
 The Fe--Cr case uses \code{MSDTC\_41\_fluorides.dat} with only Fe and Cr enabled.  A
 \(24\times24\) elemental mesh generates \(N=576\) states:
@@ -922,7 +1099,7 @@ The archive used 5,000 maximum epochs, patience 500, learning rate \(10^{-3}\), 
 0.2, and seed 11.  The runtime used four worker batches, previous-solve warm starts, global relative
 tolerance \(10^{-3}\), \(10^{-6}\) absolute phase-amount tolerances, and audit interval 20.
 
-\subsection{Fluoride/gas demonstration}
+\subsection{Legacy fluoride/gas microbenchmark}
 
 The second case combines the existing multielement trajectory with a steady, direct
 initial-condition evaluation.  It enables U, Zr, F, Be, and Li and samples \(N=400\) states over
@@ -951,8 +1128,9 @@ to lie inside every marginal bound is not necessarily near the curve.
     Output class & Relative tolerance & Absolute tolerance \\
     \midrule
     Gibbs energies and potentials & \(10^{-3}\) away from zero & output default \\
-    Phase or species amounts & \(10^{-2}\) & \(10^{-6}\) \\
+    Phase or species amounts & \(10^{-2}\) & no looser than \(10^{-10}\) per unit total \\
     Fractions & zero in validation specification & \(10^{-3}\) \\
+    Material vapor pressures & \(0.1\) decade & declared materiality floor \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -962,7 +1140,54 @@ substantial exact-solve reduction, and at least a twofold worker solve-time spee
 
 \section{Results}
 
-\subsection{Held-out Fe--Cr accuracy}
+\subsection{Preliminary qualification evidence}
+
+\begin{table}[H]
+  \centering
+  \caption{Status of the revised qualification campaign at this report revision.}
+  \label{tab:qualification-status}
+  \small
+  \begin{tabular}{L{0.25\textwidth}L{0.16\textwidth}L{0.49\textwidth}}
+    \toprule
+    Gate & Status & Evidence \\
+    \midrule
+    Schema-2 trainer round trip & \measured & Seven focused unit tests pass, including explicit
+    validation isolation, output transforms, phase logits, per-assemblage distances, and embedded
+    metadata, raw-archive test scoring, and numeric telemetry reduction. \\
+    MOOSE/libtorch integration & \measured & Chemical Reactions builds against libtorch 2.10 and
+    loads/evaluates both schema-1 and schema-2 TorchScript archives.  A four-thread schema-1
+    smoke completed four neural batches.  A 576-row schema-2 gate smoke made three neural
+    batches; 574 invariant rejections fell back exactly and only one row was accepted, so the
+    latter is evidence for safe deployment behavior rather than accuracy or speed. \\
+    Fe--Cr broad exact scan & \measured & The \(24\times24\) unrestricted discovery scan found
+    BCC, FCC, and \code{SIGD8Bsoln}.  It contained six assemblages and 64 rows with two phases
+    above \(10^{-8}\), including BCC+FCC, BCC+sigma, and FCC+sigma interiors.  The independently
+    staggered surrogate test remains \planned. \\
+    Ten-element fluoride multiphase discovery & \measured & In an eight-state unrestricted smoke
+    scan, 7 states contained MSFL plus a non-gas phase.  Five phases and 25 species exceeded the
+    \(10^{-10}\) unit-total threshold. \\
+    2/5-element table replay & \measured & Li--F exact CSV initialization and unrestricted
+    Thermochimica evaluation completed; trained fixed-cost/accuracy curves are \planned. \\
+    NS precursor/replay integration & \shortstack{\measured\\\failed} & A \(2\times4\) FV precursor converged
+    and its eight cells replayed exactly through all 101 requested outputs using the separate
+    Navier--Stokes and Chemical Reactions executables.  Every row had MSFL+\code{Ni\_fcc(s)} and
+    both the complete phase-fraction and iodine-distribution sums were one; an ALL-output replay
+    found no unlisted active phase or species.  The locally linked all-modules combined executable
+    currently segfaults before MOOSE startup; the \(8\times16\) neural maps and
+    80\%/\(2\times\) gates therefore remain \planned. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The active phases from the unrestricted fluoride smoke test were
+\code{FLi\_LiF\_FM3M\_No.225(s)}, \code{MSFL}, \code{Ni\_fcc(s)}, \code{U\_S1(s)}, and
+\code{gas\_ideal}.  Observed assemblages included MSFL+Ni solid, MSFL+gas,
+MSFL+Ni solid+U solid, and solid LiF+MSFL+Ni solid+U solid.  This directly resolves the central
+methodological concern: the new fluoride evidence is not constructed by requesting only a gas
+phase.  It does not yet establish surrogate accuracy, because this discovery run is exact and
+deliberately precedes training.
+
+\subsection{Legacy held-out Fe--Cr accuracy}
 
 Table~\ref{tab:fecr-validation} reports the internal holdout metrics.  Every output had accepted
 fraction one.  The two inactive phase amounts have relative error one because both the reference
@@ -995,7 +1220,7 @@ Because the validation rows are interspersed within the same regular grid, these
 demonstrate interpolation in a smooth BCC window, not extrapolation or independent phase-boundary
 accuracy.
 
-\subsection{Held-out fluoride accuracy}
+\subsection{Legacy held-out fluoride accuracy}
 
 \begin{table}[htbp]
   \centering
@@ -1021,7 +1246,7 @@ slightly larger than \(10^{-6}\), but Equation~\eqref{eq:validation-test} includ
 relative term; the combined tolerance passes every row.  Fraction errors are approximately three
 orders of magnitude below their \(10^{-3}\) absolute limit.
 
-\subsection{Runtime exact-solve reduction and speed}
+\subsection{Legacy runtime exact-solve reduction and speed}
 
 \begin{table}[htbp]
   \centering
@@ -1114,7 +1339,7 @@ separate normalized scales.
   \label{fig:performance-bars}
 \end{figure}
 
-\subsection{Off-gassing trajectory behavior}
+\subsection{Legacy off-gassing trajectory behavior}
 
 Across the shifted fluoride validation interval, the exact ideal-gas amount decreases from
 approximately \(0.3800\) to \(0.2276\), a 40.1\% reduction.  Its fraction falls from
@@ -1194,7 +1419,7 @@ call count while leaving the archive unchanged.
 
 \section{Discussion}
 
-\subsection{Why the two demonstrations succeed}
+\subsection{Why the two legacy demonstrations succeed}
 
 Both datasets restrict the regression problem to a smooth represented regime.  Fe--Cr has two
 independent thermodynamic directions: temperature and binary composition.  The fluoride problem
@@ -1219,10 +1444,10 @@ initialization.  Out-of-domain and invalid rows execute exact GEM.  A model exce
 worker, and an audit error both publishes the exact row and disables future inference.
 
 These mechanisms substantially reduce integration risk, but they are empirical rather than
-formal.  A plausible, finite, in-bounds prediction can pass scalar invariants while violating an
-unexpressed coupled thermodynamic identity.  Likewise, a coordinatewise box admits points that
-were never near training data.  Auditing detects sampled errors after deployment; it does not prove
-every unaudited row correct.
+formal.  Schema 2 closes two important holes: a coordinatewise in-box point must also lie near
+training anchors of its classified assemblage, and declared complete fraction groups must satisfy
+their coupled sums.  Unexpressed thermodynamic identities can still be violated.  Auditing detects
+sampled errors after deployment; it does not prove every unaudited row correct.
 
 \subsection{Comparison with in-situ adaptive models}
 
@@ -1244,21 +1469,14 @@ The approaches are complementary:
 The last item is not implemented here; adding it tonight would obscure rather than strengthen the
 current evidence.
 
-\subsection{Interpretation of the fluoride demonstration}
+\subsection{Interpretation of the legacy fluoride demonstration}
 
-The gas-bearing interval supports a speciation/off-gassing demonstration, but not a globally valid
+The gas-bearing interval remains a useful performance microbenchmark but not a globally valid
 reactor chemistry model.  Its seven-dimensional bounding box is constructed from a one-dimensional
-curve.  A robust production design should either:
-\begin{enumerate}[leftmargin=*]
-  \item train on a physically motivated multidimensional envelope around expected off-gassing
-  trajectories and use a distance-to-data guard;
-  \item partition the trajectory by active phase regime and deploy an explicitly classified
-  mixture of local models; or
-  \item restrict the archive contract to a parameterized trajectory coordinate and reject states
-  that do not satisfy that trajectory definition.
-\end{enumerate}
-The first option is the most general but requires substantially more exact data.  The second makes
-phase transitions explicit.  The third is simplest for a tightly controlled demonstration.
+curve.  The revised campaign takes the first, more general path: an independently perturbed
+multidimensional envelope, unrestricted phase discovery, explicit phase classification, and a
+distance-to-data guard.  Until its held-out acceptance gates pass, the legacy timing is not
+evidence for the new ten-element fluoride archive.
 
 \section{Guarantees, limitations, and qualification path}
 
@@ -1268,8 +1486,10 @@ For a successfully initialized archive:
 \begin{itemize}[leftmargin=*]
   \item input and output ordering is checked against metadata;
   \item the database bytes and selected phase configuration are checked;
-  \item rows outside recorded marginal bounds are not inferred;
-  \item nonfinite and scalar-invariant failures are not published;
+  \item schema-2 rows outside recorded marginal bounds or calibrated per-assemblage support are
+  not inferred;
+  \item low-confidence or amount-inconsistent phase labels are not inferred;
+  \item nonfinite, scalar-invariant, and declared coupled-invariant failures are not published;
   \item audit rows publish exact values; and
   \item one audit failure disables the responsible worker's neural path.
 \end{itemize}
@@ -1290,20 +1510,22 @@ The archive does not provide:
 
 \subsection{Recommended next qualification steps}
 
-The shortest evidence-driven path from prototype to a credible demonstration is:
+The remaining evidence-driven path from preliminary implementation to qualification is:
 \begin{enumerate}[leftmargin=*]
-  \item generate an independently staggered Fe--Cr validation grid and report errors by temperature
-  and composition, not only global maxima;
+  \item finish the independently staggered Fe--Cr test grid and report errors separately for
+  single-phase interiors, multiphase interiors, and transition-buffer fallbacks;
+  \item run the held-out fluoride scan and fail the case if any unlisted phase or species exceeds
+  the discovery threshold;
+  \item complete the fixed-cost and fixed-accuracy 2/5-element curves locally, followed by the
+  9/13/17-element SLURM array;
+  \item complete exact and neural replay over identical fresh/depleted NS fields and report
+  fluorine-potential maps, iodine distributions/vapor pressures, integrated gas inventory, and
+  phase/fallback maps;
   \item archive exact and neural CSV files, full logs, executable digest, source revisions,
   training spec, archive digest, host topology, and environment package lists;
-  \item repeat exact and neural runs at least seven times, reporting medians and interquartile
-  ranges for aggregate worker and end-to-end wall time;
-  \item add a distance-to-training-data or trajectory-consistency guard inside the marginal box;
-  \item test exact fallback across the Fe--Cr BCC/FCC boundary and the fluoride gas-disappearance
-  point;
-  \item validate coupled identities such as phase-fraction sums and elemental balances where the
-  requested output set permits them;
-  \item explicitly record thermodynamic output units in schema version 2; and
+  \item execute the configured repeated timings: quick manifests schedule three repetitions and
+  full manifests schedule seven, with mean, median, standard deviation, approximate 95\%
+  confidence half-width, aggregate worker time, and end-to-end wall time retained separately;
   \item evaluate a PT2/AOTInductor loader only after the TorchScript scientific contract and
   benchmark archive are stable.
 \end{enumerate}
@@ -1311,23 +1533,22 @@ The shortest evidence-driven path from prototype to a credible demonstration is:
 \section{Conclusions}
 
 The implemented capability separates thermodynamic authority from approximation: Thermochimica
-generates the truth data and remains available for every rejected or audited state, while PyTorch
-provides a compact batched approximation for represented states.  Canonical logarithmic inputs,
-composition normalization, extensive-output scaling, embedded standardization, ordered metadata,
-physical invariants, exact seeding, periodic audits, and worker-local disablement form a coherent
-deployment method rather than a bare neural-network call.
+generates truth data and remains available for every rejected or audited state, while PyTorch
+provides a compact batched approximation only for represented states.  Schema 2 adds the missing
+multiphase safeguards: calibrated phase-presence classification, per-assemblage support distance,
+trace-output transforms, explicit model-output layout, and coupled fraction invariants.
 
-The two prototype demonstrations meet their stated output tolerances and have zero audit failures.
-Fe--Cr reduces exact solves by 94.4\% and aggregate worker time by a factor of 4.99.  The
-gas-bearing fluoride trajectory reduces exact solves by 95.0\%, aggregate worker time by a factor
-of 16.79, and observed end-to-end time by approximately 9.4.  These results justify continued
-development, especially for expensive multielement trajectories.
+The revised exact discovery evidence demonstrates that
+\code{MSDTC\_41\_fluorides.dat} produces scientifically relevant condensed multiphase behavior in
+the chosen ten-element envelope.  The smoke scan found solid LiF, Ni solid, and U solid alongside
+MSFL and gas; 7 of 8 states satisfied the MSFL-plus-non-gas requirement.  This is a meaningful
+improvement over the original gas-only framing, but it is not yet an accuracy or speed result.
 
-They do not justify unconstrained use.  The most important next result is not a larger network; it
-is independent, non-overlapping thermodynamic validation with persistent provenance, followed by
-repeated application timings and phase-boundary fallback tests.  Until those gates pass,
-\code{acceleration=exact} remains the production reference and the fluoride archive remains a
-trajectory-specific off-gassing demonstration.
+The earlier \(4.99\times\) Fe--Cr and \(16.79\times\) fluoride worker-time results remain recorded
+only as legacy smooth-regime measurements.  They do not qualify the new phase-aware studies.
+Until the independent multiphase, element-scaling, unseen-output, audit, and NS timing gates pass,
+\code{acceleration=exact} remains the production reference and no fluoride-wide acceleration claim
+is made.
 
 \section{Relation to prior work and deployment guidance}
 
@@ -1386,6 +1607,12 @@ platform provenance rather than substituted invisibly.
   ``AOTInductor: Ahead-Of-Time Compilation for PyTorch,''
   official documentation, accessed 29 July 2026.
   \url{https://docs.pytorch.org/docs/main/user_guide/torch_compiler/torch.compiler_aot_inductor.html}
+
+  \bibitem{vtbthermo}
+  Idaho National Laboratory,
+  ``MSFR Spatially-resolved thermochemistry model using Thermochimica,'' Virtual Test Bed,
+  model documentation, input, depletion CSV, and results, accessed 29 July 2026.
+  \url{https://github.com/idaholab/virtual_test_bed/tree/devel/msr/msfr/thermochemistry}
 \end{thebibliography}
 
 \appendix
@@ -1395,9 +1622,9 @@ platform provenance rather than substituted invisibly.
 The following abridged example shows the contract shape.  Output descriptors are ordered and
 include type-specific selectors.
 
-\begin{lstlisting}[caption={Abridged schema-version-1 archive metadata.}]
+\begin{lstlisting}[caption={Abridged schema-version-2 archive metadata.}]
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "archive_type": "thermochimica_neural_torchscript",
   "database_sha256": "1236d1a57bf0f12eea6e0e20d99747b2...",
   "elements": ["Fe", "Cr"],
@@ -1419,6 +1646,29 @@ include type-specific selectors.
   ],
   "input_lower_bounds": [1.40198, 0.0, 0.109375, 0.459375],
   "input_upper_bounds": [1.76321, 0.0, 0.540625, 0.890625],
+  "phase_gate": {
+    "confidence_threshold": 0.99,
+    "temperature": 0.79,
+    "phases": [{"phase": "BCC_A2", "output_index": 6,
+                "presence_threshold": 1e-8}]
+  },
+  "support": {
+    "coordinate_system": "training_standardized_euclidean",
+    "assemblages": [
+      {"signature": [1], "distance_index": 18, "radius": 0.42}
+    ]
+  },
+  "model_output_layout": {
+    "regression_width": 17,
+    "phase_logit_offset": 17,
+    "phase_logit_count": 1,
+    "support_distance_offset": 18,
+    "support_distance_count": 1
+  },
+  "invariant_groups": [
+    {"output_indices": [7, 9, 11, 13, 15],
+     "target": 1.0, "tolerance": 0.001}
+  ],
   "torch_version": "2.10.0",
   "validation_loss": 5.00013e-7,
   "validation_metrics": []
@@ -1431,20 +1681,33 @@ The trainer can be run directly after an exact CSV has been generated:
 \begin{lstlisting}[language=bash,caption={Direct Fe--Cr training.}]
 conda run -n ml python \
   modules/chemical_reactions/benchmarks/thermochimica_neural/train_thermochimica_nn.py \
-  --data /persistent/results/fe_cr_exact_samples_0000.csv \
-  --spec modules/chemical_reactions/benchmarks/thermochimica_neural/fe_cr.json \
+  --data /persistent/results/fe_cr_training.csv \
+  --validation-data /persistent/results/fe_cr_validation.csv \
+  --spec modules/chemical_reactions/benchmarks/thermochimica_neural/fe_cr_multiphase.json \
   --output /persistent/results/fe_cr.pt
 \end{lstlisting}
 
-The demonstration driver generates exact data, trains, and executes the neural case:
-\begin{lstlisting}[language=bash,caption={End-to-end demonstration commands.}]
+The qualification driver generates exact data, trains, and executes the requested campaign:
+\begin{lstlisting}[language=bash,caption={Quick qualification commands.}]
 conda run -n ml python \
-  modules/chemical_reactions/benchmarks/thermochimica_neural/run_demo.py \
-  fe_cr --workdir /persistent/results/fe_cr
+  modules/chemical_reactions/benchmarks/thermochimica_neural/qualification.py \
+  fe_cr --tier quick --workdir /persistent/results/fe_cr
 
 conda run -n ml python \
-  modules/chemical_reactions/benchmarks/thermochimica_neural/run_demo.py \
-  fluoride_gas --workdir /persistent/results/fluoride_gas
+  modules/chemical_reactions/benchmarks/thermochimica_neural/qualification.py \
+  elements --tier quick --workdir /persistent/results/elements
+
+conda run -n ml python \
+  modules/chemical_reactions/benchmarks/thermochimica_neural/qualification.py \
+  fluoride --tier quick --workdir /persistent/results/fluoride
+
+conda run -n ml python \
+  modules/chemical_reactions/benchmarks/thermochimica_neural/qualification.py \
+  ns --tier quick --workdir /persistent/results/msfr_ns
+
+conda run -n ml python \
+  modules/chemical_reactions/benchmarks/thermochimica_neural/plot_qualification.py \
+  --workdir /persistent/results
 \end{lstlisting}
 
 A publication-quality result directory should retain:
@@ -1459,6 +1722,7 @@ source_revisions.json             MOOSE and Thermochimica revisions
 environment.txt                   Python, PyTorch, compiler, and libtorch
 timings.csv                       all exact/neural repetitions
 host.json                         CPU, memory, OS, affinity, thread and MPI layout
+figures/*.pdf, figures/*.png      deterministic campaign visualizations
 \end{lstlisting}
 
 \section{Focused test matrix}
@@ -1483,12 +1747,18 @@ host.json                         CPU, memory, OS, affinity, thread and MPI layo
   Out-of-domain fallback &
   At least one canonical coordinate outside bounds &
   Row is exact and out-of-bounds telemetry increments. \\
+  Outside-support fallback &
+  In-box coordinate beyond the classified assemblage radius &
+  Row is exact and support-rejection telemetry increments. \\
+  Phase-boundary fallback &
+  Confidence below 0.99 or phase amount contradicts its label &
+  Row is exact and phase-rejection telemetry increments. \\
   Nonfinite/model failure &
   Archive returns NaN or invalid shape &
   Prediction is not published; exact fallback is used and worker inference is disabled on
   forward-level failure. \\
   Invariant rejection &
-  Negative amount or fraction outside \([0,1]\) &
+  Negative/scalar-invalid output or incomplete phase/element sum &
   Row is exact and invariant-rejection telemetry increments. \\
   Audit disablement &
   Deliberately inaccurate but finite archive &
