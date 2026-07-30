@@ -189,6 +189,30 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn((16, 1), topologies)
         self.assertIn((1, 16), topologies)
 
+    def test_full_parallel_fluoride_has_worker_local_idw_coverage(self):
+        study = benchmark.load_manifest("full")["studies"]["parallel"]
+        configs = benchmark.expand_study("parallel", study)
+        fluoride = [
+            config
+            for config in configs
+            if config["case"] == "multielement_fluoride"
+        ]
+        self.assertTrue(fluoride)
+        self.assertTrue(all(config["mesh"] == 320 for config in fluoride))
+        self.assertTrue(all(config["chemical_elements"] == 9 for config in fluoride))
+
+    def test_underfilled_parallel_local_idw_is_rejected(self):
+        study = {
+            "case": "multielement_fluoride",
+            "axis": "parallel",
+            "mesh": 20,
+            "chemical_elements": {"multielement_fluoride": 17},
+            "neighbors": 8,
+            "values": [{"threads": 16, "ranks": 1}],
+        }
+        with self.assertRaisesRegex(ValueError, "local IDW requires at least 9"):
+            benchmark.expand_study("parallel", study)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -135,9 +135,10 @@ qualification coverage and fallback safety, not successful KKT acceleration.
 MSTDB v4.1 is substantially more expensive than the former v3 database for the higher-dimensional
 sets. The quick dimension study therefore uses 5 states and 4 neighbors; the full study uses 10
 states and 4 neighbors. Both stop at the exercised 17-element set. The full
-representative-fluoride model comparison uses 10 states, its parallel study uses 20, and the
-output-cost study uses 5. The large-state-count scaling studies remain assigned to the much
-cheaper Mo-Ru problem.
+representative-fluoride model comparison uses 10 states, while its parallel study uses 320 states
+and the exercised 9-element subset so that all 16 workers retain at least 20 local states. The
+output-cost study uses 5 states. The largest state-count scaling study remains assigned to the
+much cheaper Mo-Ru problem.
 
 For launch planning, a local one-element-mesh exact initial/query sequence took approximately
 0.4 s, 2.2 s, 6.3 s, 95-101 s, and 281 s for the 2-, 5-, 9-, 13-, and 17-element sets,

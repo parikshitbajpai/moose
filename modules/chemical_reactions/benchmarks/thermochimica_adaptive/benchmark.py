@@ -525,6 +525,22 @@ def validate_nonoverlapping_trajectory(config: dict[str, Any]) -> None:
         )
 
 
+def validate_parallel_coverage(config: dict[str, Any]) -> None:
+    """Require enough worker-local records to attempt local IDW interpolation."""
+    if config["axis"] != "parallel" or config["surrogate_model"] != "local_idw":
+        return
+    worker_count = config["threads"] * config["ranks"]
+    dimension = config["chemical_elements"] + 2
+    neighbors = config["neighbors"] or max(2 * dimension + 1, 8)
+    minimum_local_states = config["mesh"] // worker_count
+    if minimum_local_states < neighbors + 1:
+        raise ValueError(
+            f"{config['case']} parallel configuration has only {minimum_local_states} "
+            f"states in its smallest worker partition, but local IDW requires at least "
+            f"{neighbors + 1}"
+        )
+
+
 def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
     if name == "capability_comparison":
         configs = []
@@ -634,6 +650,7 @@ def expand_study(name: str, study: dict[str, Any]) -> list[dict[str, Any]]:
                 else:
                     raise ValueError(f"Unsupported study axis '{axis}'")
                 validate_nonoverlapping_trajectory(config)
+                validate_parallel_coverage(config)
                 configs.append(config)
     return configs
 
