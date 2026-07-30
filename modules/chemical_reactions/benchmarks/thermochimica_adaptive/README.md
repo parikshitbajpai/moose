@@ -231,10 +231,13 @@ utilization, and common tolerance curves. Invalid algorithms receive infinite pr
 remain in the denominator. Diagnostic plots from cache, warm-start, rejection, parallel, and
 output-cost studies are written under `figures/diagnostics/`.
 
-All figures load the tracked `report.mplstyle`, use a colorblind-safe and grayscale-distinguishable
-method palette, place headline legends outside the data region, and export transparent PDF, SVG,
-and 300-DPI PNG files. LaTeX text rendering is used when a `latex` executable is available and
-falls back to Matplotlib text rendering otherwise.
+All figures load the tracked `report.mplstyle`, use Palettable's scientific Batlow palette with
+distinct method line styles and markers, show framed legends, place headline legends outside the
+data region, and export transparent PDF, SVG, and 300-DPI PNG files. Neighbor-count, audit-interval,
+and cache-capacity diagnostics report query-state disposition so exact reuse cannot be mistaken
+for surrogate acceleration; studies that exercise no relevant predictions are labeled
+inconclusive. LaTeX text rendering is used when a `latex` executable is available and falls back
+to Matplotlib text rendering otherwise.
 
 Accuracy uses
 

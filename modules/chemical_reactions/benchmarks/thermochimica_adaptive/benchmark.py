@@ -37,11 +37,6 @@ METHOD_LABELS = {
     "local_idw": "Adaptive local interpolation",
     "kkt_linear": "Adaptive KKT sensitivity",
 }
-METHOD_COLORS = {
-    "exact_gem": "#000000",
-    "local_idw": "#0072B2",
-    "kkt_linear": "#E69F00",
-}
 METHOD_LINESTYLES = {
     "exact_gem": "-",
     "local_idw": "--",
@@ -959,7 +954,7 @@ def metadata(executable: Path, tier: str, commands: list[list[str]]) -> dict[str
         return result.stdout.strip() if result.returncode == 0 else "unknown"
 
     packages = {}
-    for package in ("matplotlib", "psutil"):
+    for package in ("matplotlib", "palettable", "psutil"):
         try:
             module = __import__(package)
             packages[package] = getattr(module, "__version__", "unknown")
@@ -1644,9 +1639,27 @@ def plot_results(directory: Path) -> None:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from cycler import cycler
+        from palettable.scientific.sequential import Batlow_10, Batlow_20
     except ImportError as error:
-        raise RuntimeError(f"Plot generation requires matplotlib: {error}") from error
+        raise RuntimeError(
+            f"Plot generation requires matplotlib and palettable: {error}"
+        ) from error
     plt.style.use(str(PLOT_STYLE))
+    scientific_colors = Batlow_10.mpl_colors
+    method_colors = {
+        "exact_gem": scientific_colors[0],
+        "exact": scientific_colors[0],
+        "local_idw": scientific_colors[3],
+        "kkt_linear": scientific_colors[7],
+    }
+    rejection_colors = (
+        scientific_colors[0],
+        scientific_colors[4],
+        scientific_colors[6],
+        scientific_colors[8],
+    )
+    plt.rcParams["axes.prop_cycle"] = cycler(color=scientific_colors)
     if shutil.which("latex") is None:
         plt.rcParams["text.usetex"] = False
         print(
@@ -1681,7 +1694,7 @@ def plot_results(directory: Path) -> None:
             x, [100 * float(row["exact_call_reduction_median"]) for row in tolerance], "o-"
         )
         axes[1].axhline(50.0, color="black", linestyle="--", linewidth=1)
-        axes[1].set(xlabel="Relative tolerance", ylabel="Exact-call reduction (%)")
+        axes[1].set(xlabel="Relative tolerance", ylabel=r"Exact-call reduction (\%)")
         save_figure(figure, figures, "tolerance_speedup")
         plt.close(figure)
 
@@ -1707,20 +1720,23 @@ def plot_results(directory: Path) -> None:
             selected = sorted((row for row in mesh if row["mode"] == mode), key=numeric_axis)
             if not selected:
                 continue
-            label = method_label(
-                "exact_gem" if mode == "exact" else selected[0]["surrogate_model"]
-            )
+            method = "exact_gem" if mode == "exact" else selected[0]["surrogate_model"]
+            label = method_label(method)
             axes[0].loglog(
                 [numeric_axis(row) for row in selected],
                 [float(row["wall_time_median"]) for row in selected],
-                "o-",
                 label=label,
+                color=method_colors[method],
+                linestyle=METHOD_LINESTYLES[method],
+                marker=METHOD_MARKERS[method],
             )
             axes[1].loglog(
                 [numeric_axis(row) for row in selected],
                 [float(row["worker_solve_time_median"]) for row in selected],
-                "o-",
                 label=label,
+                color=method_colors[method],
+                linestyle=METHOD_LINESTYLES[method],
+                marker=METHOD_MARKERS[method],
             )
         axes[0].set(xlabel="Mesh elements", ylabel="Application wall time (s)")
         axes[1].set(xlabel="Mesh elements", ylabel="Query worker time (s)")
@@ -1735,20 +1751,23 @@ def plot_results(directory: Path) -> None:
             selected = sorted((row for row in elements if row["mode"] == mode), key=numeric_axis)
             if not selected:
                 continue
-            label = method_label(
-                "exact_gem" if mode == "exact" else selected[0]["surrogate_model"]
-            )
+            method = "exact_gem" if mode == "exact" else selected[0]["surrogate_model"]
+            label = method_label(method)
             axes[0].plot(
                 [numeric_axis(row) for row in selected],
                 [float(row["worker_solve_time_median"]) for row in selected],
-                "o-",
                 label=label,
+                color=method_colors[method],
+                linestyle=METHOD_LINESTYLES[method],
+                marker=METHOD_MARKERS[method],
             )
             axes[2].plot(
                 [numeric_axis(row) for row in selected],
                 [float(row["peak_rss_bytes_median"]) / (1024 * 1024) for row in selected],
-                "o-",
                 label=label,
+                color=method_colors[method],
+                linestyle=METHOD_LINESTYLES[method],
+                marker=METHOD_MARKERS[method],
             )
         adaptive = sorted((row for row in elements if row["mode"] == "adaptive"), key=numeric_axis)
         axes[1].plot(
@@ -1758,7 +1777,7 @@ def plot_results(directory: Path) -> None:
         )
         axes[0].set(xlabel="Chemical elements", ylabel="Query worker time (s)")
         axes[0].legend()
-        axes[1].set(xlabel="Chemical elements", ylabel="Surrogate hit rate (%)")
+        axes[1].set(xlabel="Chemical elements", ylabel=r"Surrogate hit rate (\%)")
         axes[2].set(xlabel="Chemical elements", ylabel="Peak process-tree RSS (MiB)")
         save_figure(figure, figures, "element_scaling")
         plt.close(figure)
@@ -1768,8 +1787,8 @@ def plot_results(directory: Path) -> None:
         cases = sorted({row["case"] for row in parallel})
         figure, axes = plt.subplots(len(cases), 3, figsize=(14, 4.0 * len(cases)), squeeze=False)
         topology_styles = {
-            "threads": ("#0072B2", "o", "1 MPI rank x N MOOSE threads"),
-            "ranks": ("#D55E00", "s", "N MPI ranks x 1 MOOSE thread"),
+            "threads": (scientific_colors[2], "o", "1 MPI rank x N MOOSE threads"),
+            "ranks": (scientific_colors[7], "s", "N MPI ranks x 1 MOOSE thread"),
         }
         for case_index, case in enumerate(cases):
             case_axes = axes[case_index]
@@ -1862,7 +1881,7 @@ def plot_results(directory: Path) -> None:
             case_axes[2].set(
                 title=case.replace("_", " "),
                 xlabel="MOOSE thread or MPI rank count",
-                ylabel="Adaptive query-state fraction (%)",
+                ylabel=r"Adaptive query-state fraction (\%)",
                 ylim=(0.0, 105.0),
             )
             case_axes[0].legend(fontsize="x-small")
@@ -1876,18 +1895,198 @@ def plot_results(directory: Path) -> None:
         figure, axis = plt.subplots(figsize=(6, 4))
         x = [str(row["axis_value"]) for row in boundary]
         bottom = [0.0] * len(boundary)
-        for field, label in (
-            ("phase_rejections_median", "phase"),
-            ("geometry_rejections_median", "geometry"),
-            ("error_rejections_median", "error"),
-            ("invariant_rejections_median", "invariant"),
+        for (field, label), color in zip(
+            (
+                ("phase_rejections_median", "Phase-assemblage mismatch"),
+                ("geometry_rejections_median", "Insufficient local-cloud geometry"),
+                ("error_rejections_median", "Estimated error above tolerance"),
+                ("invariant_rejections_median", "Invalid predicted output"),
+            ),
+            rejection_colors,
         ):
             values = [float(row[field]) for row in boundary]
-            axis.bar(x, values, bottom=bottom, label=label)
+            axis.bar(
+                x,
+                values,
+                bottom=bottom,
+                label=label,
+                color=color,
+                edgecolor="0.15",
+                linewidth=0.4,
+            )
             bottom = [lhs + rhs for lhs, rhs in zip(bottom, values)]
-        axis.set(xlabel="Relative tolerance", ylabel="Query rejections")
+        axis.set(
+            xlabel="Relative tolerance",
+            ylabel="Query rejections",
+            title="Reasons for safeguarded Full GEM fallback",
+        )
         axis.legend()
         save_figure(figure, figures, "boundary_rejections")
+        plt.close(figure)
+
+    neighbors = [row for row in summary if row["axis"] == "neighbors" and row["mode"] == "adaptive"]
+    if neighbors:
+        neighbors.sort(key=lambda row: math.inf if row["axis_value"] == "auto" else numeric_axis(row))
+        figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+        x = [str(row["axis_value"]) for row in neighbors]
+        axes[0].plot(
+            x,
+            [float(row["wall_speedup_median"]) for row in neighbors],
+            color=method_colors["local_idw"],
+            marker=METHOD_MARKERS["local_idw"],
+            linestyle=METHOD_LINESTYLES["local_idw"],
+        )
+        axes[0].axhline(2.0, color="black", linestyle="--", linewidth=0.8)
+        axes[0].set(xlabel="Local-cloud neighbor count", ylabel="Application wall speedup")
+        axes[1].plot(
+            x,
+            [1e3 * float(row["worker_solve_time_median"]) for row in neighbors],
+            color=method_colors["local_idw"],
+            marker=METHOD_MARKERS["local_idw"],
+            linestyle=METHOD_LINESTYLES["local_idw"],
+        )
+        axes[1].set(xlabel="Local-cloud neighbor count", ylabel="Query worker time (ms)")
+        bottom = [0.0] * len(neighbors)
+        for field, label, color in (
+            ("exact_reuse_hits_median", "Exact cache reuse", scientific_colors[1]),
+            ("surrogate_hits_median", "Accepted interpolation", scientific_colors[3]),
+            ("audits_median", "Audited Full GEM", scientific_colors[7]),
+        ):
+            values = [query_state_percent(row, field) for row in neighbors]
+            axes[2].bar(
+                x,
+                values,
+                bottom=bottom,
+                label=label,
+                color=color,
+                edgecolor="0.15",
+                linewidth=0.4,
+            )
+            bottom = [lhs + rhs for lhs, rhs in zip(bottom, values)]
+        fallback = [
+            100.0
+            - query_state_percent(row, "exact_reuse_hits_median")
+            - query_state_percent(row, "surrogate_hits_median")
+            - query_state_percent(row, "audits_median")
+            for row in neighbors
+        ]
+        axes[2].bar(
+            x,
+            fallback,
+            bottom=bottom,
+            label="Safeguarded Full GEM fallback",
+            color=scientific_colors[9],
+            edgecolor="0.15",
+            linewidth=0.4,
+        )
+        axes[2].set(
+            xlabel="Local-cloud neighbor count",
+            ylabel=r"Query states (\%)",
+            ylim=(0.0, 105.0),
+        )
+        handles, legend_labels = axes[2].get_legend_handles_labels()
+        figure.legend(
+            handles,
+            legend_labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.08),
+            ncol=4,
+            fontsize="small",
+        )
+        if all(float(row["surrogate_hits_median"]) == 0.0 for row in neighbors):
+            figure.suptitle("Neighbor-count study is inconclusive: no interpolation was exercised")
+            print(
+                "warning: neighbor-count study is inconclusive because no interpolation "
+                "was exercised",
+                file=sys.stderr,
+            )
+        save_figure(figure, figures, "neighbor_count_tradeoff")
+        plt.close(figure)
+
+    audits = [
+        row for row in summary if row["axis"] == "audit_interval" and row["mode"] == "adaptive"
+    ]
+    if audits:
+        audits.sort(key=numeric_axis)
+        figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+        x = [str(row["axis_value"]) for row in audits]
+        axes[0].plot(
+            x,
+            [float(row["wall_speedup_median"]) for row in audits],
+            color=method_colors["local_idw"],
+            marker=METHOD_MARKERS["local_idw"],
+            linestyle=METHOD_LINESTYLES["local_idw"],
+        )
+        axes[0].axhline(2.0, color="black", linestyle="--", linewidth=0.8)
+        axes[0].set(xlabel="Audit interval", ylabel="Application wall speedup")
+        axes[1].bar(
+            x,
+            [float(row["audits_median"]) for row in audits],
+            color=scientific_colors[7],
+            edgecolor="0.15",
+            linewidth=0.4,
+        )
+        axes[1].set(
+            xlabel="Audit interval",
+            ylabel="Audited query states",
+            title="No audits recorded",
+            ylim=(0.0, 1.0),
+        )
+        bottom = [0.0] * len(audits)
+        for field, label, color in (
+            ("exact_reuse_hits_median", "Exact cache reuse", scientific_colors[1]),
+            ("surrogate_hits_median", "Accepted interpolation", scientific_colors[3]),
+            ("audits_median", "Audited Full GEM", scientific_colors[7]),
+        ):
+            values = [query_state_percent(row, field) for row in audits]
+            axes[2].bar(
+                x,
+                values,
+                bottom=bottom,
+                label=label,
+                color=color,
+                edgecolor="0.15",
+                linewidth=0.4,
+            )
+            bottom = [lhs + rhs for lhs, rhs in zip(bottom, values)]
+        fallback = [
+            100.0
+            - query_state_percent(row, "exact_reuse_hits_median")
+            - query_state_percent(row, "surrogate_hits_median")
+            - query_state_percent(row, "audits_median")
+            for row in audits
+        ]
+        axes[2].bar(
+            x,
+            fallback,
+            bottom=bottom,
+            label="Safeguarded Full GEM fallback",
+            color=scientific_colors[9],
+            edgecolor="0.15",
+            linewidth=0.4,
+        )
+        axes[2].set(
+            xlabel="Audit interval",
+            ylabel=r"Query states (\%)",
+            ylim=(0.0, 105.0),
+        )
+        handles, legend_labels = axes[2].get_legend_handles_labels()
+        figure.legend(
+            handles,
+            legend_labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.08),
+            ncol=4,
+            fontsize="small",
+        )
+        if all(float(row["audits_median"]) == 0.0 for row in audits):
+            figure.suptitle("Audit-interval study is inconclusive: no predictions were audited")
+            print(
+                "warning: audit-interval study is inconclusive because no predictions "
+                "were audited",
+                file=sys.stderr,
+            )
+        save_figure(figure, figures, "audit_interval_tradeoff")
         plt.close(figure)
 
     cache = [row for row in summary if row["axis"] == "cache_capacity" and row["mode"] == "adaptive"]
@@ -1895,12 +2094,73 @@ def plot_results(directory: Path) -> None:
         cache.sort(key=numeric_axis)
         figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
         x = [numeric_axis(row) for row in cache]
-        axes[0].loglog(x, [float(row["cache_entries_median"]) for row in cache], "o-")
-        axes[0].set(xlabel="Cache capacity", ylabel="Final cache entries")
-        axes[1].semilogx(x, [float(row["cache_saturated_median"]) for row in cache], "o-")
-        axes[1].set(xlabel="Cache capacity", ylabel="Cache saturated")
-        axes[2].semilogx(x, [float(row["worker_speedup_median"]) for row in cache], "o-")
-        axes[2].set(xlabel="Cache capacity", ylabel="Worker speedup")
+        axes[0].semilogx(
+            x,
+            [float(row["wall_speedup_median"]) for row in cache],
+            color=method_colors["local_idw"],
+            marker=METHOD_MARKERS["local_idw"],
+            linestyle=METHOD_LINESTYLES["local_idw"],
+        )
+        axes[0].axhline(2.0, color="black", linestyle="--", linewidth=0.8)
+        axes[0].set(xlabel="Cache capacity", ylabel="Application wall speedup")
+        bottom = [0.0] * len(cache)
+        for field, label, color in (
+            ("exact_reuse_hits_median", "Exact cache reuse", scientific_colors[1]),
+            ("surrogate_hits_median", "Accepted interpolation", scientific_colors[3]),
+            ("audits_median", "Audited Full GEM", scientific_colors[7]),
+        ):
+            values = [query_state_percent(row, field) for row in cache]
+            axes[1].bar(
+                [str(int(value)) for value in x],
+                values,
+                bottom=bottom,
+                label=label,
+                color=color,
+                edgecolor="0.15",
+                linewidth=0.4,
+            )
+            bottom = [lhs + rhs for lhs, rhs in zip(bottom, values)]
+        fallback = [
+            100.0
+            - query_state_percent(row, "exact_reuse_hits_median")
+            - query_state_percent(row, "surrogate_hits_median")
+            - query_state_percent(row, "audits_median")
+            for row in cache
+        ]
+        axes[1].bar(
+            [str(int(value)) for value in x],
+            fallback,
+            bottom=bottom,
+            label="Safeguarded Full GEM fallback",
+            color=scientific_colors[9],
+            edgecolor="0.15",
+            linewidth=0.4,
+        )
+        axes[1].set(
+            xlabel="Cache capacity",
+            ylabel=r"Query states (\%)",
+            ylim=(0.0, 105.0),
+        )
+        handles, legend_labels = axes[1].get_legend_handles_labels()
+        figure.legend(
+            handles,
+            legend_labels,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.08),
+            ncol=4,
+            fontsize="small",
+        )
+        axes[2].semilogx(
+            x,
+            [float(row["peak_rss_bytes_median"]) / (1024 * 1024) for row in cache],
+            color=scientific_colors[6],
+            marker="o",
+        )
+        axes[2].set(xlabel="Cache capacity", ylabel="Peak process-tree RSS (MiB)")
+        title = "Cache-capacity tradeoff"
+        if all(float(row["surrogate_hits_median"]) == 0.0 for row in cache):
+            title += ": exact-reuse dominated"
+        figure.suptitle(title)
         save_figure(figure, figures, "cache_scaling")
         plt.close(figure)
 
@@ -1909,21 +2169,65 @@ def plot_results(directory: Path) -> None:
         row for row in summary if row["axis"] == "surrogate_model" and row["mode"] == "adaptive"
     ]
     if models:
-        figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
-        labels = [
-            f"{row['case']}\n{method_label(row['surrogate_model'])}"
-            for row in models
-        ]
-        axes[0].bar(labels, [float(row["worker_speedup_median"]) for row in models])
-        axes[1].bar(
-            labels, [100 * float(row["exact_call_reduction_median"]) for row in models]
-        )
-        axes[2].bar(labels, [float(row["sensitivity_time_median"]) for row in models])
-        axes[0].axhline(2.0, color="black", linestyle="--", linewidth=1)
-        axes[1].axhline(50.0, color="black", linestyle="--", linewidth=1)
-        axes[0].set(ylabel="Query worker speedup")
-        axes[1].set(ylabel="Exact-call reduction (%)")
-        axes[2].set(ylabel="Sensitivity construction time (s)")
+        fallback_qualification = all(row["study"].endswith("_fallback") for row in models)
+        labels = [method_label(row["surrogate_model"]) for row in models]
+        colors = [method_colors[row["surrogate_model"]] for row in models]
+        bar_style = {"color": colors, "edgecolor": "0.15", "linewidth": 0.4}
+        if fallback_qualification:
+            figure, axes = plt.subplots(1, 2, figsize=(9, 3.8))
+            fallback_fraction = [
+                100
+                * float(row["exact_solves_median"])
+                / max(float(row["states_median"]), 1.0)
+                for row in models
+            ]
+            unsupported_fraction = [
+                100
+                * float(row["unsupported_model_rejections_median"])
+                / max(float(row["states_median"]), 1.0)
+                for row in models
+            ]
+            axes[0].bar(labels, fallback_fraction, **bar_style)
+            axes[1].bar(labels, unsupported_fraction, **bar_style)
+            axes[0].set(
+                ylabel=r"Query states (\%)",
+                title="Exact Full GEM fallback",
+                ylim=(0.0, 105.0),
+            )
+            axes[1].set(
+                ylabel=r"Query states (\%)",
+                title="Unsupported-model rejection",
+                ylim=(0.0, 105.0),
+            )
+            study_label = (
+                models[0]["study"]
+                .replace("_", " ")
+                .replace("subq", "SUBQ")
+                .replace("msfl", "MSFL")
+            )
+            figure.suptitle(f"Fail-closed qualification: {study_label}")
+        else:
+            figure, axes = plt.subplots(1, 3, figsize=(13, 3.8))
+            axes[0].bar(
+                labels,
+                [float(row["worker_speedup_median"]) for row in models],
+                **bar_style,
+            )
+            axes[1].bar(
+                labels,
+                [100 * float(row["exact_call_reduction_median"]) for row in models],
+                **bar_style,
+            )
+            axes[2].bar(
+                labels,
+                [float(row["sensitivity_time_median"]) for row in models],
+                **bar_style,
+            )
+            axes[0].axhline(2.0, color="black", linestyle="--", linewidth=1)
+            axes[1].axhline(50.0, color="black", linestyle="--", linewidth=1)
+            axes[0].set(ylabel="Query worker speedup")
+            axes[1].set(ylabel=r"Exact-call reduction (\%)")
+            axes[2].set(ylabel="Sensitivity construction time (s)")
         for axis in axes:
             axis.tick_params(axis="x", labelrotation=20)
         save_figure(figure, figures, "surrogate_model_comparison")
@@ -2086,13 +2390,21 @@ def plot_results(directory: Path) -> None:
             heatmap.append(heatmap_row)
             annotations.append(annotation_row)
         figure, axis = plt.subplots(figsize=(max(5, 1.8 * len(algorithms)), max(3.5, 0.55 * len(cases))))
-        image = axis.imshow(heatmap, aspect="auto", cmap="viridis")
+        image = axis.imshow(heatmap, aspect="auto", cmap=Batlow_20.mpl_colormap)
         axis.set_xticks(range(len(algorithms)), algorithms)
         axis.set_yticks(range(len(cases)), cases)
         axis.set(title="Median valid query-worker speedup")
         for row_index, row in enumerate(annotations):
             for column_index, text_value in enumerate(row):
-                axis.text(column_index, row_index, text_value, ha="center", va="center", color="white")
+                value = heatmap[row_index][column_index]
+                axis.text(
+                    column_index,
+                    row_index,
+                    text_value,
+                    ha="center",
+                    va="center",
+                    color="white" if image.norm(value) < 0.55 else "black",
+                )
         figure.colorbar(image, ax=axis, label="Speedup")
         save_figure(figure, figures, "algorithm_speedup_heatmap")
         plt.close(figure)
@@ -2187,10 +2499,22 @@ def plot_results(directory: Path) -> None:
                 save_figure(figure, figures, "phase_boundary_trajectory")
                 plt.close(figure)
 
-    plot_capability_results(directory, headline_figures, plt)
+    plot_capability_results(
+        directory,
+        headline_figures,
+        plt,
+        method_colors,
+        scientific_colors,
+    )
 
 
-def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
+def plot_capability_results(
+    directory: Path,
+    figures: Path,
+    plt: Any,
+    method_colors: dict[str, Any],
+    scientific_colors: list[Any],
+) -> None:
     rows = load_csv(directory / "comparison.csv")
     if not rows:
         return
@@ -2235,7 +2559,7 @@ def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
                     fraction,
                     where="post",
                     label=method_label(algorithm),
-                    color=METHOD_COLORS[algorithm],
+                    color=method_colors[algorithm],
                     linestyle=METHOD_LINESTYLES[algorithm],
                 )
             axis.set_xscale("log")
@@ -2299,7 +2623,7 @@ def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
                 fractions,
                 where="post",
                 label=method_label(algorithm),
-                color=METHOD_COLORS[algorithm],
+                color=method_colors[algorithm],
                 linestyle=METHOD_LINESTYLES[algorithm],
             )
         axis.set(
@@ -2326,7 +2650,7 @@ def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
                     [max(finite_float(row, "max_normalized_error"), 1e-14) for row in points],
                     [finite_float(row, "wall_speedup") for row in points],
                     marker=marker,
-                    color=METHOD_COLORS[algorithm],
+                    color=method_colors[algorithm],
                     label=f"{method_label(algorithm)}{suffix}",
                 )
         axis.set_xscale("log")
@@ -2357,10 +2681,15 @@ def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
             )
             bottom = [0.0] * len(utilization)
             for field, label, color, hatch in (
-                ("reuse_utilization", "Exact cache reuse", "#56B4E9", ""),
-                ("approximate_utilization", "Accepted prediction", "#009E73", "//"),
-                ("audit_utilization", "Audited Full GEM", "#CC79A7", "\\\\"),
-                ("fallback_utilization", "Safeguarded Full GEM fallback", "#999999", ".."),
+                ("reuse_utilization", "Exact cache reuse", scientific_colors[1], ""),
+                ("approximate_utilization", "Accepted prediction", scientific_colors[3], "//"),
+                ("audit_utilization", "Audited Full GEM", scientific_colors[7], "\\\\"),
+                (
+                    "fallback_utilization",
+                    "Safeguarded Full GEM fallback",
+                    scientific_colors[9],
+                    "..",
+                ),
             ):
                 values = [finite_float(row, field, 0.0) for row in utilization]
                 axis.bar(
@@ -2407,7 +2736,7 @@ def plot_capability_results(directory: Path, figures: Path, plt: Any) -> None:
                     )
                 )
             style = {
-                "color": METHOD_COLORS[algorithm],
+                "color": method_colors[algorithm],
                 "linestyle": METHOD_LINESTYLES[algorithm],
                 "marker": METHOD_MARKERS[algorithm],
                 "label": method_label(algorithm),

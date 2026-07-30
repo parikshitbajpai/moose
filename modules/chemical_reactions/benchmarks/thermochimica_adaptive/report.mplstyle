@@ -32,7 +32,12 @@ ytick.major.width : 0.8
 xtick.minor.width : 0.6
 ytick.minor.width : 0.6
 
-legend.frameon : False
+legend.frameon : True
+legend.facecolor : white
+legend.edgecolor : 0.2
+legend.framealpha : 0.95
+legend.fancybox : False
+legend.borderpad : 0.5
 legend.numpoints : 1
 legend.scatterpoints : 1
 
