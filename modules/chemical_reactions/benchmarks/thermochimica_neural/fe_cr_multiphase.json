@@ -1,0 +1,53 @@
+{
+  "database": "../thermochimica_adaptive/MSDTC_41_fluorides.dat",
+  "temperature_column": "temperature",
+  "pressure_column": "pressure",
+  "temperature_unit": "K",
+  "pressure_unit": "bar",
+  "composition_unit": "moles",
+  "elements": ["Fe", "Cr"],
+  "outputs": [
+    {"type": "chemical_potential", "variable": "bcc_cr_potential", "phase": "BCC_A2", "species": "CR:VA", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "chemical_potential", "variable": "bcc_fe_potential", "phase": "BCC_A2", "species": "FE:VA", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "chemical_potential", "variable": "fcc_cr_potential", "phase": "FCC_A1", "species": "CR", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "chemical_potential", "variable": "fcc_fe_potential", "phase": "FCC_A1", "species": "FE", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "element_potential", "variable": "cr_potential", "element": "Cr", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "element_potential", "variable": "fe_potential", "element": "Fe", "extensive": false, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001},
+    {"type": "phase", "variable": "bcc_amount", "phase": "BCC_A2", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "bcc_fraction", "phase": "BCC_A2", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "phase", "variable": "fcc_amount", "phase": "FCC_A1", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "fcc_fraction", "phase": "FCC_A1", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "phase", "variable": "hcp_amount", "phase": "HCP_A3", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "hcp_fraction", "phase": "HCP_A3", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "phase", "variable": "liquid_amount", "phase": "Structural_liquid", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "liquid_fraction", "phase": "Structural_liquid", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "phase", "variable": "sigma_amount", "phase": "SIGD8Bsoln", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "sigma_fraction", "phase": "SIGD8Bsoln", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "system_gibbs", "variable": "system_gibbs", "extensive": true, "nonnegative": false, "fraction": false, "relative_tolerance": 0.001}
+  ],
+  "phase_gate": {
+    "confidence_threshold": 0.99,
+    "loss_weight": 0.1,
+    "phases": [
+      {"phase": "BCC_A2", "amount_variable": "bcc_amount", "presence_threshold": 1e-8},
+      {"phase": "FCC_A1", "amount_variable": "fcc_amount", "presence_threshold": 1e-8},
+      {"phase": "HCP_A3", "amount_variable": "hcp_amount", "presence_threshold": 1e-8},
+      {"phase": "Structural_liquid", "amount_variable": "liquid_amount", "presence_threshold": 1e-8},
+      {"phase": "SIGD8Bsoln", "amount_variable": "sigma_amount", "presence_threshold": 1e-8}
+    ]
+  },
+  "invariant_groups": [
+    {
+      "name": "complete_phase_fraction_sum",
+      "variables": ["bcc_fraction", "fcc_fraction", "hcp_fraction", "liquid_fraction", "sigma_fraction"],
+      "target": 1.0,
+      "tolerance": 0.001
+    }
+  ],
+  "support": {"quantile": 0.99, "padding": 1.25},
+  "epochs": 5000,
+  "patience": 500,
+  "learning_rate": 0.001,
+  "validation_fraction": 0.2,
+  "seed": 11
+}

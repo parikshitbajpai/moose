@@ -1,0 +1,31 @@
+{
+  "tier": "quick",
+  "repetitions": 3,
+  "fe_cr": {
+    "training_grid": 24,
+    "validation_grid": 12,
+    "test_grid": 23,
+    "epochs": 1200,
+    "patience": 120
+  },
+  "element_scaling": {
+    "element_counts": [2, 5],
+    "training_prefixes": [64, 128],
+    "fixed_cost_samples": 64,
+    "validation_samples": 64,
+    "test_samples": 64,
+    "epochs": 600,
+    "patience": 80
+  },
+  "fluoride_discovery": {
+    "samples": 128,
+    "seed": 71
+  },
+  "msfr_ns": {
+    "nx": 8,
+    "ny": 16,
+    "training_operating_points": 3,
+    "validation_operating_points": 1,
+    "test_operating_points": 1
+  }
+}

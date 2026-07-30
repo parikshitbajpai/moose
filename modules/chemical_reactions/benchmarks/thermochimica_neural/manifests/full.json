@@ -1,0 +1,37 @@
+{
+  "tier": "full",
+  "repetitions": 7,
+  "fe_cr": {
+    "training_grid": 64,
+    "validation_grid": 32,
+    "test_grid": 63,
+    "epochs": 5000,
+    "patience": 500
+  },
+  "element_scaling": {
+    "element_counts": [2, 5, 9, 13, 17],
+    "training_prefixes": [64, 128, 256, 512, 1024, 2048],
+    "fixed_cost_samples": 512,
+    "validation_samples": 256,
+    "test_samples": 256,
+    "epochs": 3000,
+    "patience": 200
+  },
+  "element_stress": {
+    "element_count": 22,
+    "samples": 16,
+    "timeout_seconds": 1800,
+    "accuracy_qualification": false
+  },
+  "fluoride_discovery": {
+    "samples": 512,
+    "seed": 71
+  },
+  "msfr_ns": {
+    "nx": 48,
+    "ny": 96,
+    "training_operating_points": 12,
+    "validation_operating_points": 4,
+    "test_operating_points": 2
+  }
+}

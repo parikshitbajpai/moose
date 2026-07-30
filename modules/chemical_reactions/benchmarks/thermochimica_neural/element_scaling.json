@@ -1,0 +1,33 @@
+{
+  "database": "../thermochimica_adaptive/MSDTC_41_fluorides.dat",
+  "temperature_column": "temperature",
+  "pressure_column": "pressure",
+  "temperature_unit": "K",
+  "pressure_unit": "bar",
+  "composition_unit": "moles",
+  "elements": ["Li", "F"],
+  "outputs": [
+    {"type": "element_potential", "variable": "f_potential", "element": "F", "extensive": false, "nonnegative": false, "fraction": false, "absolute_tolerance": 1.0, "relative_tolerance": 0.001},
+    {"type": "element_potential", "variable": "li_potential", "element": "Li", "extensive": false, "nonnegative": false, "fraction": false, "absolute_tolerance": 1.0, "relative_tolerance": 0.001},
+    {"type": "phase", "variable": "gas_amount", "phase": "gas_ideal", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "gas_fraction", "phase": "gas_ideal", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "phase", "variable": "msfl_amount", "phase": "MSFL", "extensive": true, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-10, "relative_tolerance": 0.01, "transform": {"kind": "log1p", "scale": 1e-10}},
+    {"type": "phase", "variable": "msfl_fraction", "phase": "MSFL", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "species", "variable": "lif_fraction", "phase": "MSFL", "species": "LiF", "extensive": false, "nonnegative": true, "fraction": true, "absolute_tolerance": 0.001, "relative_tolerance": 0.0, "transform": {"kind": "log1p", "scale": 1e-8}},
+    {"type": "system_gibbs", "variable": "system_gibbs", "extensive": true, "nonnegative": false, "fraction": false, "absolute_tolerance": 1.0, "relative_tolerance": 0.001},
+    {"type": "vapor_pressure", "variable": "fli_vapor_pressure", "phase": "gas_ideal", "species": "FLi", "extensive": false, "nonnegative": true, "fraction": false, "absolute_tolerance": 1e-12, "relative_tolerance": 0.01, "materiality_floor": 1e-12, "transform": {"kind": "log1p", "scale": 1e-12}}
+  ],
+  "phase_gate": {
+    "confidence_threshold": 0.99,
+    "loss_weight": 0.1,
+    "phases": [
+      {"phase": "gas_ideal", "amount_variable": "gas_amount", "presence_threshold": 1e-10},
+      {"phase": "MSFL", "amount_variable": "msfl_amount", "presence_threshold": 1e-10}
+    ]
+  },
+  "support": {"quantile": 0.99, "padding": 1.25},
+  "epochs": 3000,
+  "patience": 200,
+  "learning_rate": 0.001,
+  "seed": 41
+}

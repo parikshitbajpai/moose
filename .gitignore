@@ -101,6 +101,13 @@ temp_print_trace.*
 *Revision.h
 *.json
 *.json.*
+modules/chemical_reactions/benchmarks/tc-results_*/
+# Deterministic neural-surrogate specifications and attributed benchmark inputs.
+!modules/chemical_reactions/benchmarks/thermochimica_neural/element_scaling.json
+!modules/chemical_reactions/benchmarks/thermochimica_neural/fe_cr_multiphase.json
+!modules/chemical_reactions/benchmarks/thermochimica_neural/manifests/
+!modules/chemical_reactions/benchmarks/thermochimica_neural/manifests/*.json
+!modules/chemical_reactions/benchmarks/thermochimica_neural/msfr_compositions.csv
 *.bak
 *.data
 *.processor.*

@@ -411,7 +411,7 @@
     design = 'ChemicalCompositionAction.md ThermochimicaData.md'
     issues = '#22711'
     requirement = 'The neural Thermochimica surrogate shall require an explicit archive.'
-    capabilities = 'thermochimica libtorch'
+    capabilities = 'thermochimica & libtorch'
   []
 
   [neural_metadata_required]
@@ -422,7 +422,17 @@
     design = 'ChemicalCompositionAction.md ThermochimicaData.md'
     issues = '#22711'
     requirement = 'The neural Thermochimica surrogate shall reject a TorchScript archive without its deployment metadata.'
-    capabilities = 'thermochimica libtorch'
+    capabilities = 'thermochimica & libtorch'
+  []
+
+  [neural_schema_two_trainer]
+    type = PythonUnitTest
+    input = test_neural_trainer.py
+    required_python_packages = 'numpy scipy torch'
+    design = 'ChemicalCompositionAction.md ThermochimicaData.md'
+    issues = '#22711'
+    requirement = 'The neural Thermochimica trainer shall export schema-2 archives with explicit validation isolation, phase-aware support metadata, physical output transforms, and complete MSFR qualification specifications.'
+    capabilities = 'thermochimica & libtorch'
   []
 
   [adaptive_interpolation]
