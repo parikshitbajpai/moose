@@ -1419,10 +1419,11 @@ ThermochimicaData::solveRow(const unsigned int row, const bool allow_prediction)
   }
   else
   {
-    Thermochimica::setReinitRequested(warm_start ==
-                                      ThermochimicaConfiguration::WarmStart::PREVIOUS_SOLVE);
-    if (warm_start == ThermochimicaConfiguration::WarmStart::PREVIOUS_SOLVE &&
-        _worker_has_previous_solve)
+    const bool use_previous_solve =
+        warm_start == ThermochimicaConfiguration::WarmStart::PREVIOUS_SOLVE &&
+        _worker_has_previous_solve;
+    Thermochimica::setReinitRequested(use_previous_solve);
+    if (use_previous_solve)
       ++_header->warm_starts;
   }
 
